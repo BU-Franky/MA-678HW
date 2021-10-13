@@ -1,0 +1,362 @@
+---
+title: "HW5Blank"
+author: "Yifan Zhang"
+date: "10/2/2020"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load("rstanarm","bayesplot","AER","brms","ggplot2","glmx","boot")
+```
+
+## 15.1 Poisson and negative binomial regression: 
+The folder RiskyBehavior contains data from a  randomized trial targeting couples at high risk of HIV infection. The intervention provided  counseling sessions regarding practices that could reduce their likelihood of contracting HIV. Couples were randomized either to a control group, a group in which just the woman participated,  or a group in which both members of the couple participated. 
+One of the outcomes examined  after three months was “number of unprotected sex acts.”  
+
+### a) 
+Model this outcome as a function of treatment assignment using a Poisson regression. Does  the model fit well? Is there evidence of overdispersion?  
+
+```{r}
+# one of the outcomes examined  after three months was “number of unprotected sex acts.”
+library(dplyr)
+risky <- read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/RiskyBehavior/data/risky.csv",header=T)
+# pre-processing
+risky$fupacts <- round(risky$fupacts)
+risky$women_alone <- as.factor(risky$women_alone)
+risky$couples <- as.factor(risky$couples)
+risky$sex <- as.factor(risky$sex)
+risky$bs_hiv <- as.factor(risky$bs_hiv)
+# Poisson distribution
+fit_a <- stan_glm(fupacts ~ couples + women_alone, family = poisson(link = "log"), data = risky, refresh = 0)
+print(fit_a, digits = 3)
+# overdispersion check
+# construct chi-square statistic to check overdispersion
+y_hat_a <- predict(fit_a, type = "response")
+z_a <- (risky$fupacts - y_hat_a)/sqrt(y_hat_a)
+n = length(risky$fupacts)
+k_a = length(risky) - 1
+cat ("overdispersion ratio is ", sum(z_a^2)/(n-k_a), "\n")
+cat ("p-value of overdispersion test is ", pchisq (sum(z_a^2), n-k_a), "\n")
+```
+the model does not fit well, and since the variance of random component is roughly 44 times of mean, it is severely overdispersed.
+
+To summarize:
+
+- `sex` is the sex of the person, recorded as "man" or "woman" here
+- `couples` is an indicator for if the couple was counseled together
+- `women_alone` is an indicator for if the woman went to counseling by herself
+- `bs_hiv` indicates if the individual is HIV positive
+- `bupacts` is the number of unprotected sex acts reported as a baseline (before treamtnet)
+- `fupacts` is the number of unprotected sex acts reported at the end of the study
+
+### b) 
+Next extend the model to include pre-treatment measures of the outcome and the additional  pre-treatment variables included in the dataset. Does the model fit well? Is there evidence of  overdispersion?  
+
+```{r}
+fit_b = stan_glm(fupacts ~ bs_hiv + sex + couples + women_alone, data=risky, offset = log(bupacts + 1), family=poisson(link="log"), refresh=0)
+# fit_b = stan_glm(fupacts ~ bs_hiv + sex + couples + women_alone + log(bupacts + 1), data=risky,  family=poisson(link="log"), refresh=0)
+print(fit_b, digit = 3)
+y_hat_b <- predict(fit_b, type = "response")
+z_b <- (risky$fupacts - y_hat_b)/sqrt(y_hat_b)
+k_b = length(risky) - 1
+cat ("overdispersion ratio is ", sum(z_b^2)/(n-k_b), "\n")
+cat ("p-value of overdispersion test is ", pchisq (sum(z_b^2), n-k_b), "\n")
+```
+the model still does not fit well, since the overdispersion is nearly times, which means the variances of this poisson distribution is nearly 41 times of mean. this is a strong envidence of overdispersion
+
+### c) 
+Fit a negative binomial (overdispersed Poisson) model. What do you conclude regarding  effectiveness of the intervention?
+
+```{r}
+fit_c <- stan_glm(fupacts ~ bs_hiv + sex + couples + women_alone, data = risky, offset = log(bupacts +1), family = neg_binomial_2(link = "log"), refresh = 0)
+pp_check(fit_c)
+# compare with poisson distribution
+pp_check(fit_b)
+# negative binomial model is much more suitable here!!!
+print(fit_c, digits = 3)
+```
+conclusions: 
+
+### d) 
+These data include responses from both men and women from the participating couples.  Does this give you any concern with regard to our modeling assumptions? 
+...
+
+## 15.3 Binomial regression: 
+Redo the basketball shooting example on page 270, making some changes:  
+
+### (a) 
+Instead of having each player shoot 20 times, let the number of shots per player vary, drawn  from the uniform distribution between 10 and 30.  
+
+```{r}
+N <- 100
+height <- rnorm(N, 72, 3)
+p <- 0.4 + 0.1*(height - 72)/3
+n <- round(runif(100, min = 10, max = 30))
+y <- rbinom(N, n, p)
+data <- data.frame(n=n, y=y, height=height)
+```
+
+### (b) 
+Instead of having the true probability of success be linear, have the true probability be a  logistic function, set so that Pr(success) = 0.3 for a player who is 5'9" and 0.4 for a 6' tall  player. 
+
+```{r}
+# have the true probability be a  logistic function
+# Pr(success) = 0.3 for a player who is 5'9" and 0.4 for a 6' tall  player
+logit(.4)
+logit(.3)
+b1 <- (logit(.4) - logit(.3))/3
+b0 <- (logit(.4) - 72*b1)
+# thus
+# not run:: height <- 69
+# not run:: height <- 72
+# not run:: the logistic function is: p <- invlogit(b0 + b1*height)
+N <- 100
+height <- rnorm(N, 72, 3)
+p <- invlogit(b0 + b1*height)
+n <- round(runif(100, min = 10, max = 30))
+y <- rbinom(N, n, p)
+data <- data.frame(n=n, y=y, height=height)
+```
+
+## 15.7 Tobit model for mixed discrete/continuous data: 
+Experimental data from the National Supported  Work example are in the folder Lalonde. Use the treatment indicator and pre-treatment variables  to predict post-treatment (1978) earnings using a Tobit model. Interpret the model coefficients. 
+
+```{r}
+library(AER)
+lalonde = foreign::read.dta("https://github.com/avehtari/ROS-Examples/blob/master/Lalonde/NSW_dw_obs.dta?raw=true")
+# Use the treatment indicator and pre-treatment variables  to predict post-treatment
+# 1.	sample: 1 = NSW; 2 = CPS; 3 = PSID.
+# 2.	treat: 1 = experimental treatment group (NSW); 0 = comparison group (either from CPS or PSID)   Treatment took place in 1976/1977.
+# 3.	age  = age in years
+# 4.	educ = years of schooling
+# 5.	black: 1 if black; 0 otherwise.
+# 6.	hisp: 1 if Hispanic; 0 otherwise.
+# 7.	married: 1 if married; 0 otherwise.
+# 8.	nodegree: 1 if no high school diploma; 0 otherwise.
+# 9.	re74, re75, re78: real earnings in 1974, 1975 and 1978
+# 10.	educ_cat = 4 category education variable (1=<hs, 2=hs, 3=sm college, 4=college)
+summary(lalonde)
+model_15.7 <- tobit(re78 ~ treat + educ_cat4 + sample + age + educ + black + hisp + married + nodegree, left = 0, right = max(lalonde$re78), data = lalonde)
+print(model_15.7, digit = 2)
+sum(model_15.7$coefficients)
+```
+Interpretation: ...
+
+## 15.8 Robust linear regression using the t model: 
+The folder Congress has the votes for the Democratic  and Republican candidates in each U.S. congressional district in 1988, along with the parties’  vote proportions in 1986 and an indicator for whether the incumbent was running for reelection  in 1988. For your analysis, just use the elections that were contested by both parties in both  years.  
+
+```{r}
+congress = read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Congress/data/congress.csv")
+congress88 <- data.frame(vote=congress$v88_adj,pastvote=congress$v86_adj,inc=congress$inc88)
+library(brms)
+ggplot() + 
+  geom_histogram(data = congress88, aes(x = vote), fill = "blue", alpha = .4, bins  = 100) +
+    geom_histogram(data = congress88, aes(x = pastvote), fill = "red", alpha = .4, bins  = 100)
+```
+
+### (a) 
+Fit a linear regression using stan_glm with the usual normal-distribution model for the  errors predicting 1988 Democratic vote share from the other variables and assess model fit.  
+
+```{r}
+fit_norm <- stan_glm(vote ~ pastvote + inc, data = congress88, refresh = 0)
+print(fit_norm, digits = 2)
+summary(fit_norm)
+b = coef(fit_norm)
+# assess model fit
+plotdata = data.frame(vote = congress88$vote, pastvote = congress88$pastvote, inc = as.factor(congress88$inc))
+ggplot(data = plotdata) + 
+  geom_point(aes(x = pastvote, y = vote, color = inc), size = .8) + 
+  geom_abline(intercept = b[1], slope = b[2] + -1*b[3], color = "tomato1", lwd = .6) + 
+  geom_abline(intercept = b[1], slope = b[2] + 0*b[3], color = "green3", lwd = .6) + 
+  geom_abline(intercept = b[1], slope = b[2] + 1*b[3], color = "royalblue1", lwd = .6) 
+```
+there exist a points, whose pastvote = .75 and inc = -1, strongly affect the fitness of the model! this point is obviously an wrong point(or outlier).
+
+### (b) 
+Fit the same sort of model using the brms package with a t distribution, using the brm  function with the student family. Again assess model fit.  
+
+```{r}
+library(brms)
+library(glmx)
+fit_robst <- brm(vote ~ pastvote + inc, family = student(link = "identity"), data = congress88)
+print(fit_robst, digits = 4)
+b <- c( 0.2238, 0.5481, 0.0945)
+summary(fit_robst)
+ggplot(data = plotdata) + 
+  geom_point(aes(x = pastvote, y = vote, color = inc), size = .8) + 
+  geom_abline(intercept = b[1], slope = b[2] + -1*b[3], color = "tomato1", lwd = .6) + 
+  geom_abline(intercept = b[1], slope = b[2] + 0*b[3], color = "green3", lwd = .6) + 
+  geom_abline(intercept = b[1], slope = b[2] + 1*b[3], color = "royalblue1", lwd = .6) 
+```
+
+### (c) 
+Which model do you prefer? 
+the robit model
+
+## 15.9 Robust regression for binary data using the robit model: 
+Use the same data as the previous  example with the goal instead of predicting for each district whether it was won by the  Democratic or Republican candidate.  
+
+### (a) 
+Fit a standard logistic or probit regression and assess model fit.  
+
+```{r}
+# congress
+congress_88 <- data.frame(vote=as.numeric(congress$v88_adj>.5),pastvote=congress$v86_adj,inc=congress$inc88)
+fit_logistic <- glm(vote ~ pastvote + inc, family = binomial(link = "logit"), data = congress_88)
+print(fit_logistic, digits = 3)
+b <- coef(fit_logistic)
+# jitter the points
+jitter_binary <- function(a, jitt=0.05){
+     ifelse(a==0, runif(length(a), 0, jitt), runif(length(a), 1 - jitt, 1))
+}
+
+# x_scare <- seq(min(congress_88$pastvote),max(congress_88$pastvote), .01)
+x_scare <- seq(0, 1, .01)
+plot_data <- data.frame(vote = jitter_binary(congress_88$vote), inc = as.factor(congress_88$inc), pastvote = congress_88$pastvote)
+sim_data <- data.frame(x = x_scare, y_1 = invlogit(b[1] + b[2]*x_scare + 1*b[3]), y_0 <- invlogit(b[1] + b[2]*x_scare + 0*b[3]), y_neg1 <- invlogit(b[1] + b[2]*x_scare + (-1)*b[3]))
+
+ggplot(data = sim_data) + 
+  geom_point(data = plot_data, aes(x = pastvote, y = vote, color = inc), size = .8) + 
+  geom_line(aes(x = x, y = y_neg1), color = "tomato1", lwd = .6) + 
+  geom_line(aes(x = x, y = y_0), color = "green3", lwd = .6) + 
+  geom_line(aes(x = x, y = y_1), color = "royalblue1", lwd = .6)
+library(dplyr)
+congress_n <- dim(congress_88)[1]
+error_rate_logistic <- 1 - sum(as.numeric(as.numeric(predict(fit_logistic, type = "response") > .5) == congress_88$vote))/congress_n
+```
+
+### (b) 
+Fit a robit regression and assess model fit.  
+
+```{r}
+fit_gosset <- glm(vote ~ pastvote + inc, family = binomial(link = gosset(2)), data = congress_88)
+print(fit_gosset)
+error_rate_gosset <- 1 - sum(as.numeric(as.numeric(predict(fit_gosset, type = "response") > .5) == congress_88$vote))/congress_n
+# compare correct rate
+error_rate_gosset < error_rate_logistic
+```
+
+### (c) 
+Which model do you prefer? 
+
+I prefer the gosset model because the error rate of gosset model is smaller than logistic model. however, an interesting point is that AIC of logistic model is smaller than that of gosset model. 
+
+
+## 15.14 Model checking for count data: 
+The folder RiskyBehavior contains data from a study of  behavior of couples at risk for HIV; see Exercise 15.1. 
+- `sex` is the sex of the person, recorded as "man" or "woman" here
+- `couples` is an indicator for if the couple was counseled together
+- `women_alone` is an indicator for if the woman went to counseling by herself
+- `bs_hiv` indicates if the individual is HIV positive
+- `bupacts` is the number of unprotected sex acts reported as a baseline (before treamtnet)
+- `fupacts` is the number of unprotected sex acts reported at the end of the study
+### (a) 
+Fit a Poisson regression predicting number of unprotected sex acts from baseline HIV status. Perform predictive simulation to generate 1000 datasets and record the percentage of  observations that are equal to 0 and the percentage that are greater than 10 (the third quartile  in the observed data) for each. Compare these to the observed value in the original data.  
+
+```{r}
+# risky
+library(scales)
+library(dplyr)
+# summary(risky)
+# Fit a Poisson regression predicting number of unprotected sex acts from baseline HIV status
+fit_poisson <- stan_glm(fupacts ~ bs_hiv, data=risky, family=poisson(link="log"), refresh=0)
+pp_check(fit_poisson)
+# percentage equal to 0 and over than 10
+sample_n <- dim(risky)[1]
+zero_real <- sum(as.numeric(risky$fupacts == 0))/sample_n
+# arrange(risky, fupacts)
+over10_real <- sum(as.numeric(risky$fupacts > 10))/sample_n
+draw_n <- 1000
+sim_poisson <- posterior_predict(fit_poisson, draws = draw_n)
+zero_poisson <- 0
+over10_poisson <- 0
+for (i in 1:draw_n) {
+  zero_poisson <- sum(as.numeric(sim_poisson[i, ] == 0))/sample_n + zero_poisson
+  over10_poisson <- sum(as.numeric(sim_poisson[i, ] > 10))/sample_n + over10_poisson
+}
+zero_poisson <- zero_poisson/draw_n
+over10_poisson <- over10_poisson/draw_n
+compare_a <- data.frame(zero_rate = percent(c(zero_real, zero_poisson), accuracy = .001), over10_rate = percent(c(over10_real, over10_poisson), accuracy = .001))
+rownames(compare_a) <- c("real data", "poisson model")
+compare_a
+```
+
+### (b) 
+Repeat (a) using a negative binomial (overdispersed Poisson) regression.  
+
+```{r}
+fit_bineg <- stan_glm(fupacts ~ bs_hiv, data=risky, family=neg_binomial_2(link = "log"), refresh=0)
+pp_check(fit_bineg)
+sim_neg_binomial <- posterior_predict(fit_bineg, draws = draw_n)
+zero_neg_binomial <- 0
+over10_neg_binomial <- 0
+for (i in 1:draw_n) {
+  zero_neg_binomial <- sum(as.numeric(sim_neg_binomial[i, ] == 0))/sample_n + zero_neg_binomial
+  over10_neg_binomial <- sum(as.numeric(sim_neg_binomial[i, ] > 10))/sample_n + over10_neg_binomial
+}
+zero_neg_binomial <- zero_neg_binomial/draw_n
+over10_neg_binomial <- over10_neg_binomial/draw_n
+compare_b <- data.frame(zero_rate = percent(c(zero_real, zero_neg_binomial), accuracy = .001), over10_rate = percent(c(over10_real, over10_neg_binomial), accuracy = .001))
+rownames(compare_b) <- c("real data", "negative binomial model")
+compare_b
+```
+
+###(c) 
+Repeat (b), also including ethnicity and baseline number of unprotected sex acts as inputs. 
+
+```{r}
+fit_bineg_involve <- stan_glm(fupacts ~ bs_hiv + log(bupacts + 1) + sex, data=risky, family=neg_binomial_2(link = "log"), refresh=0)
+pp_check(fit_bineg_involve)
+sim_bineg_involve <- posterior_predict(fit_bineg_involve, draws = draw_n)
+zero_bineg_involve <- 0
+over10_bineg_involve <- 0
+for (i in 1:draw_n) {
+  zero_bineg_involve <- sum(as.numeric(sim_bineg_involve[i, ] == 0))/sample_n + zero_bineg_involve
+  over10_bineg_involve <- sum(as.numeric(sim_bineg_involve[i, ] > 10))/sample_n + over10_bineg_involve
+}
+zero_bineg_involve <- zero_bineg_involve/draw_n
+over10_bineg_involve <- over10_bineg_involve/draw_n
+compare_c <- data.frame(zero_rate = percent(c(zero_real, zero_bineg_involve), accuracy = .001), over10_rate = percent(c(over10_real, over10_bineg_involve), accuracy = .001))
+rownames(compare_c) <- c("real data", "negative binomial model(involve sex&bupacts)")
+compare_c
+```
+the result seems to get worse(about zero percentages and over ten percentages)!
+
+## 15.15 Summarizing inferences and predictions using simulation: 
+Exercise 15.7 used a Tobit model to  fit a regression with an outcome that had mixed discrete and continuous data. In this exercise  you will revisit these data and build a two-step model: 
+(1) logistic regression for zero earnings  versus positive earnings, and 
+(2) linear regression for level of earnings given earnings are positive. 
+
+Compare predictions that result from each of these models with each other. 
+
+- Use the treatment indicator and pre-treatment variables  to predict post-treatment
+- 1.	sample: 1 = NSW; 2 = CPS; 3 = PSID.
+- 2.	treat: 1 = experimental treatment group (NSW); 0 = comparison group (either from CPS or PSID)   Treatment took place in 1976/1977.
+- 3.	age  = age in years
+- 4.	educ = years of schooling
+- 5.	black: 1 if black; 0 otherwise.
+- 6.	hisp: 1 if Hispanic; 0 otherwise.
+- 7.	married: 1 if married; 0 otherwise.
+- 8.	nodegree: 1 if no high school diploma; 0 otherwise.
+- 9.	re74, re75, re78: real earnings in 1974, 1975 and 1978
+- 10.	educ_cat = 4 category education variable (1=<hs, 2=hs, 3=sm college, 4=college)
+```{r}
+# build a two-step model: 
+# (1) logistic regression for zero earnings versus positive earnings, and 
+# (2) linear regression for level of earnings given earnings are positive. 
+lalonde_1 <- lalonde
+lalonde_1$re78 <- ifelse((lalonde_1$re78 > 0), 1, 0)
+fit15_a <- glm(re78 ~ treat + educ_cat4 + sample + age + educ + black + hisp + married + nodegree, family = binomial(link = "logit"), data = lalonde_1)
+print(fit15_a)
+lalonde_2 <- lalonde[which(lalonde$re78 > 0), ]
+fit15_b <- glm(re78 ~ treat + educ_cat4 + sample + age + educ + black + hisp + married + nodegree, data = lalonde_2)
+print(fit15_b)
+```
+
+
+
+
+

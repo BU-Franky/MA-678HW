@@ -1,0 +1,597 @@
+---
+title: "MA678 Homework 2"
+date: "9/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 11.5 
+Residuals and predictions: The folder Pyth contains outcome y and predictors x1, x2 for 40 data points, with a further 20 points with the predictors but no observed outcome. Save the file to your working directory, then read it into R using read.table().
+
+### (a) 
+Use R to fit a linear regression model predicting y from x1, x2, using the first 40 data points in the file. Summarize the inferences and check the fit of your model.
+
+```{r}
+library(rstan)
+library(rstanarm)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+text = read.table("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Pyth/pyth.txt", header = TRUE)
+# how to save it to my project
+dim(text)
+model_11.5a = stan_glm(data = text[1:40,], y ~ x1 + x2)
+summary(model_11.5a)
+model_11.5a$coefficients
+# y = 1.3179052 + 0.5154844*x1 + 0.8063797*x2
+plot(density())
+
+# Summarize the inferences and check the fit of your model
+# inference: 
+```
+
+### (b) 
+Display the estimated model graphically as in Figure 10.2
+
+```{r}
+# Figure 11.2
+training_text = data.frame(text[1:40,])
+# y = 1.3179052 + 0.5154844*x1 + 0.8063797*x2
+sims_11.5 = as.matrix(model_11.5a)
+dim(sims_11.5)
+sample_11.5 = sample(dim(sims_11.5)[1],10)
+x1_mean = apply(text, 2, mean)[2]
+x2_mean = apply(text, 2, mean)[3]
+# Imitation of Figure 11.2
+par(mfrow=c(1,2))
+plot(training_text$x1, training_text$y, xlab="x1", ylab="y")
+for (i in sample_11.5) {
+  curve(cbind(1, x, x2_mean) %*% sims_11.5[i, 1:3], lwd = 0.5, col = "gray", add = TRUE)
+}
+curve(cbind(1, x, x2_mean) %*% coef(model_11.5a), col = "black", add = TRUE)
+
+plot(training_text$x2, training_text$y, xlab="x2", ylab="y")
+for (i in sample_11.5) {
+  curve(cbind(1, x1_mean, x) %*% sims_11.5[i, 1:3], lwd = 0.5, col = "gray", add = TRUE)
+}
+curve(cbind(1, x1_mean, x) %*% coef(model_11.5a), col = "black", add = TRUE)
+# the fit graph of x2 vs. y is much better than x2 vs. y!!!
+```
+
+### (c) 
+Make a residual plot for this model. Do the assumptions appear to be met?
+
+```{r}
+#residual plot
+residual_11.5 = text$y[1:40] - model_11.5a$fitted.values
+training_text = data.frame(text[1:40,], residue = residual_11.5)
+
+## MODEL CHECK!!!
+# brief view of residual_11.5
+plot(density(residual_11.5), main = "pdf of residual", lwd = 2)
+# Q-Q plot
+standardlization_11.5 = (residual_11.5 - mean(residual_11.5))/sd(residual_11.5)
+index_11.5 = rank(standardlization_11.5)/40
+qnorm_11.5 = qnorm(index_11.5)
+plot(qnorm_11.5, standardlization_11.5, main = "Q-Q plot of model_11.5")
+abline(0, 1, lwd = 2)
+# Residual vs. Fitted
+ggplot() + 
+  geom_point(mapping = aes(x = model_11.5a$fitted.values, y = residual_11.5), color = "blue") + 
+  geom_abline(slope = 0, intercept = 0, color = "black") + 
+  geom_smooth(mapping = aes(x = model_11.5a$fitted.values, y = residual_11.5), method = lm)
+# assumption test
+# the center of residual_11.5 is left skew to 0, reject mean-zero assumption. 
+# the ditribution is nearly normally distributed, meet the normality rule.
+# pass the linearity test 
+
+
+
+# extra plot
+# residue versus y
+ggplot() + 
+  geom_point(data = training_text, mapping = aes(x = y, y = residue), color = "blue") + 
+  labs(title = "residue vs. y") + 
+  theme(plot.title = element_text(size = 15, face = "bold", hjust = 0.5, lineheight = 1.2)) + 
+  geom_hline(aes(yintercept = 0), linetype = "dashed")
+
+# residue versus x1
+ggplot() + 
+  geom_point(data = training_text, mapping = aes(x = x1, y = residue), color = "blue") + 
+  labs(title = "residue vs. x1") + 
+  theme(plot.title = element_text(size = 15, face = "bold", hjust = 0.5, lineheight = 1.2)) + 
+  geom_hline(aes(yintercept = 0), linetype = "dashed")
+# residue versus x2
+ggplot() + 
+  geom_point(data = training_text, mapping = aes(x = x2, y = residue), color = "blue") + 
+  labs(title = "residue vs. x2") + 
+  theme(plot.title = element_text(size = 15, face = "bold", hjust = 0.5, lineheight = 1.2)) + 
+  geom_hline(aes(yintercept = 0), linetype = "dashed")
+
+
+```
+
+
+### (d) 
+Make predictions for the remaining 20 data points in the file. How confident do you feel about these predictions?
+
+```{r}
+# test data visulization
+# y = 1.3179052 + 0.5154844*x1 + 0.8063797*x2
+predicted_11.5 = predict(model_11.5a, newdata = text[41:60,])
+simulation_11.5 = posterior_predict(model_11.5a, newdata = text[41:60,2:3], draws = 1000)
+#dim(simulation)
+sample_11.5d = sample(dim(simulation_11.5)[1], 50, replace = FALSE)
+for (i in sample_11.5d) {
+  plot(density(simulation_11.5[i,]), lwd = 1, col = "grey", axes = FALSE, main = "", sub = "", ylim = c(0, 0.08))
+   par(new=TRUE)
+}
+plot(density(predicted_11.5), col = "blue", lwd = 5, main = "", ylim = c(0, 0.08))
+# quite confident
+
+```
+
+
+## 12.5 
+Logarithmic transformation and regression: Consider the following regression: log(weight)=-3.8+2.1log(height)+error, with errors that have standard deviation 0.25. Weights are in pounds and heights are in inches.
+
+### (a) 
+Fill in the blanks: Approximately 68% of the people will have weights within a factor of __0.79____ and __1.28____ of their predicted values from the regression.
+```{r}
+exp(-0.25)
+exp(0.25)
+```
+
+
+### (b) 
+Using pen and paper, sketch the regression line and scatterplot of log(weight) versus log(height) that make sense and are consistent with the fitted model. Be sure to label the axes of your graph.
+```{r}
+library(ggplot2)
+error_12.5 = rnorm(200, mean = 0, sd = 0.25)
+# The heights of adult men in the United States are approximately normally distributed with a mean of 70 inches and a standard deviation of 3 inches
+height = rnorm(200, mean = 70, sd = 3)
+log_height = log(height)
+log_weight = -3.82 + 2.1*log(height) + error_12.5
+data_12.5 = data.frame(log_weight = log_weight, log_height = log_height, error = error_12.5)
+ggplot() + 
+  geom_point(data = data_12.5, mapping = aes(x = log_height, y = log_weight), color = "blue", alpha = 0.5) +
+  geom_abline(slope = 2.1, intercept = -3.8, color = "red") + 
+  labs(y = "log(weight)", x = "log(height)", title = "log(weight) versus log(height)") + 
+  theme(plot.title = element_text(size = 15, face = "bold", hjust = 0.5, lineheight = 1.2))
+```
+
+## 12.6 
+Logarithmic transformations: The folder Pollution contains mortality rates and various environmental factors from 60 US metropolitan areas. For this exercise we shall model mortality rate given nitric oxides, sulfur dioxide, and hydrocarbons as inputs. this model is an extreme oversimplication, as it combines all sources of mortality and does not adjust for crucial factors such as age and smoking. We use it to illustrate log transformation in regression.  
+
+### (a) 
+create a scatterplot of mortality rate versus level of nitric oxides. Do you think linear regression will fit these data well? Fit the regression and evaluate a residual plot from the regression.
+
+```{r}
+# model: mortality rate ~ nitric oxides + sulfur dioxide + hydrocarbons
+# extreme oversimplication
+# illustrate 'log' transformation in regression
+data_12.6 = read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Pollution/data/pollution.csv", header = TRUE)
+head(data_12.6)
+# "nitric oxides" = "nox", "sulfur dioxide" = "so2", "hydrocarbons" = "hc"
+ggplot() + 
+  geom_point(data = data_12.6, mapping = aes(x = nox, y = mort), color = "blue")
+# yeah... however, this 'nox vs. mort' plot seems to contain several 'obvious' outlier
+# fit the model
+model_12.6a = lm(data = data_12.6, mort ~ nox)
+summary(model_12.6a)
+# check the distribution of the model
+ggplot() +
+  geom_histogram(mapping = aes(model_12.6a$residuals, fill = "red"), alpha = 0.5)
+# brief look at fittness of the model
+ggplot() + 
+  geom_point(data = data_12.6, mapping = aes(x = nox, y = mort), color = "blue") + 
+  geom_abline(intercept = model_12.6a$coefficients[1], slope = model_12.6a$coefficients[2], color = "red")
+
+
+# ignore the following lines
+#######################################################
+# To be honest, it's really really a 'rubbish' model, the outlier cheat our 'least squre' algorithm!!!! 
+# I swear I definitely gonna to remove those disgusting points!
+# I see those outlier's nox values are larger than 50
+model_12.6aa =lm(data = data_12.6[-which(data_12.6$nox > 50), ], mort ~ nox) 
+# new model vs. origin point(with outlier), overlook
+ggplot() + 
+  geom_point(data = data_12.6, mapping = aes(x = nox, y = mort), color = "blue") + 
+  geom_abline(intercept = model_12.6aa$coefficients[1], slope = model_12.6aa$coefficients[2], color = "red") + 
+  geom_abline(intercept = model_12.6a$coefficients[1], slope = model_12.6a$coefficients[2], color = "darkgrey")
+# new model vs. secondary data(without outlier), overlook
+ggplot() + 
+  geom_point(data = data_12.6[-which(data_12.6$nox > 50), ], mapping = aes(x = nox, y = mort), color = "blue") + 
+  geom_abline(intercept = model_12.6aa$coefficients[1], slope = model_12.6aa$coefficients[2], color = "red") + 
+  geom_abline(intercept = model_12.6a$coefficients[1], slope = model_12.6a$coefficients[2], color = "darkgrey")
+# acceptable!!!
+
+# origin data(with outliers): residual vs. mortality
+ggplot() + 
+  geom_point(mapping = aes(x = data_12.6$mort, y = model_12.6a$residuals), color = "blue") + 
+  labs(x = "mortality", y = "residuals")
+# secondary data(without outliers): residual vs. mottality
+predicted_12.6aa = predict(model_12.6aa, newdata = data_12.6)
+residual_aa = data_12.6$mort - predicted_12.6aa
+ggplot() + 
+  geom_point(mapping = aes(x = data_12.6$mort, y = residual_aa), color = "blue") + 
+  labs(x = "mortality", y = "residuals")
+# still seem to have linear relationship...
+#######################################################
+```
+
+### (b) 
+Find an appropriate transformation that will result in data more appropriate for linear regression. Fit a regression to the transformed data and evaluate the new residual plot.
+
+```{r}
+# transformation to 'mort' 
+ggplot() + 
+  geom_histogram(mapping = aes(data_12.6$mort, fill = "red"), alpha = 0.5, bins = 20)
+
+data_12.6b = data.frame(data_12.6, log_mort = log(data_12.6$mort), log_nox = log(data_12.6$nox))
+sample_n(data_12.6b, 5)
+model_12.6b = lm(data = data_12.6b, log_mort ~ log_nox)
+summary(model_12.6b)
+ggplot() + 
+  geom_point(data = data_12.6b, mapping = aes(x = log_nox, y = log_mort), color = "blue") + 
+  geom_abline(intercept = model_12.6b$coefficients[1], slope = model_12.6b$coefficients[2], color = "red")
+#  surprising!!! inprove a lot
+ggplot() + 
+  geom_point(mapping = aes(x = data_12.6b$log_mort, y = model_12.6b$residuals), color = "blue") +
+  labs(x = "log(mortality)", y = "residuals")
+# model check
+plot(density(model_12.6b$residuals), main = "pdf of Residuals", lwd = 2)
+par(mfrow = c(2,2))
+plot(model_12.6b)
+
+```
+
+### (c) 
+Interpret the slope coefficient from the model you chose in (b)
+```{r}
+model_12.6b$coefficients
+```
+Interpretation: I prefer to use the model_12.6b(log(mortality) =  6.807 + 0.016*log(nox)), the slope coefficient(0.01589323) means each 1% difference in nox, the predicted difference in mortality is 0.3%..
+
+### (d) 
+Now fit a model predicting mortality rate using levels of nitric oxides, sulfur dioxide, and hydrocarbons as inputs. Use appropriate transformation when helpful. Plot the fitted regression model and interpret the coefficients.
+
+```{r}
+# "nitric oxides" = "nox", "sulfur dioxide" = "so2", "hydrocarbons" = "hc"
+data_12.6d = data.frame(data_12.6b, log_so2 = log(data_12.6$so2), log_hc = log(data_12.6$hc))
+data_12.6d = select(data_12.6d, log_mort, log_nox, log_so2, log_hc, everything())
+sample_n(data_12.6d, 5)
+
+model_12.6d = lm(data = data_12.6d, log_mort ~ log_nox + log_so2 + log_hc)
+par(mfrow = c(2,2))
+plot(model_12.6d)
+plot(density(model_12.6d$residuals), lwd = 2)
+# fairly good fit!
+
+
+b_12.6d = model_12.6d$coefficients
+#           [1]             [2]            [3]             [4]
+# mort = 924.1669559 + 2.9350166*nox + 0.2005761*so2 + -1.6134995*hc
+mean_log_nox = apply(data_12.6d, 2, mean)[2]
+mean_log_so2 = apply(data_12.6d, 2, mean)[3]
+mean_log_hc = apply(data_12.6d, 2, mean)[4]
+# plot fitted regression
+ggplot() + 
+  labs(x = "log(nox)", y = "log(mort)", title = "log(nox) vs. log(mort)") + 
+  geom_point(data = data_12.6d, mapping = aes(x = log_nox, y = log_mort), color = "blue") + 
+  geom_abline(slope = b_12.6d[2], intercept = b_12.6d[1] + b_12.6d[3]*mean_log_so2 + b_12.6d[4]*mean_log_hc, color = "red")
+
+ggplot() + 
+  labs(x = "log_so2", y = "log_mort", title = "log_so2 vs. log_mort") + 
+  geom_point(data = data_12.6d, mapping = aes(x = log_so2, y = log_mort), color = "blue") + 
+  geom_abline(slope = b_12.6d[3], intercept = b_12.6d[1] + b_12.6d[2]*mean_log_nox + b_12.6d[4]*mean_log_hc, color = "red")
+
+ggplot() + 
+  labs(x = "log_hc", y = "log_mort", title = "log_hc vs. log_mort") + 
+  geom_point(data = data_12.6d, mapping = aes(x = log_hc, y = log_mort), color = "blue") + 
+  geom_abline(slope = b_12.6d[4], intercept = b_12.6d[1] + model_12.6d$coefficients[2]*mean_log_nox + b_12.6d[3]*mean_log_so2, color = "red")
+```
+
+### (e) 
+Cross validate: fit the model you chose above to the first half of the data and then predict for the second half. You used all the data to construct the model in (d), so this is not really cross validation, but it gives a sense of how the steps of cross validation can be implemented.
+
+```{r}
+# fii the model with first half of data and predict for the other half
+dim(data_12.6d)
+# rearrange the data in 'data_12.6'
+# avoid missing features of the data
+index_12.6 = sample(c(1:60), 60, replace = FALSE)
+data_12.6e = array(data = NA, dim = c(60,20))
+for (i in 1:60) {
+  for (j in 1:20) {
+    data_12.6e[i,j] = data_12.6d[index_12.6[i],j]
+  }
+}
+colnames(data_12.6e) = colnames(data_12.6d)
+data_12.6e = data.frame(data_12.6e)
+sample_n(data_12.6e, 5)
+# take first half to fit the model
+model_12.6e = lm(data = data_12.6e[1:30,], log_mort ~ log_nox + log_so2 + log_hc)
+summary(model_12.6e)
+# predict
+predict_12.6e = predict(model_12.6e, newdata = data_12.6e[1:30,])
+```
+
+## 12.7 
+Cross validation comparison of models with different transformations of outcomes: when we compare models with transformed continuous outcomes, we must take into account how the nonlinear transformation warps the continuous outcomes. Follow the procedure used to compare models for the mesquite bushes example on page 202.
+
+### (a) 
+Compare models for earnings and for log(earnings) given height and sex as shown in page 84 and 192. Use earnk and log(earnk) as outcomes.
+
+```{r}
+# page 84
+earnings = read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Earnings/data/earnings.csv", header = TRUE)
+earnings$earnk = earnings$earn/1000
+ggplot() + 
+  geom_histogram(mapping = aes(earnings$earnk, fill = "red"), alpha = 0.5, bins = 30)
+# the histogram show the data suits logistic model, an obvious data skew
+
+model_12.7a = stan_glm(data = earnings, earnk ~ height + male, subset = earnk > 0)
+print(model_12.7a, digits = 2)
+# earnk = -25.64 + 0.64*height + 10.72*male
+R2_linear = 1 - sigma(model_12.7a)^2 / sd(earnings$earnk)^2
+# linear model accounts for only 9% of the variance in earnings in these data
+
+model_12.7b = stan_glm(log(earnk) ~ height + male, data=earnings, subset = earnk > 0)
+print(model_12.7b, digits = 2)
+# log(earnk) = 1.08 + 0.02*height + 0.37*male
+# earnk = exp(1.08) * (exp(0.02))^height * (exp(0.37))^male
+#      == 2.97* (1.02)^height* (1.45)^male
+
+# model compare
+# page 202
+linear_loo = loo(model_12.7a)
+linear_kfold = kfold(model_12.7a, K = 10)
+loo_compare(linear_loo, linear_kfold)
+
+logistic_loo = loo(model_12.7b)
+logistic_kfold = kfold(model_12.7b, K = 10)
+loo_compare(logistic_loo, logistic_kfold)
+
+# model_12.7c = stan_glm(data = earnings, log(earnk) ~ log(height) + male, subset = earnk > 0)
+# linear_loo2 = loo(model_12.7c)
+# loo_compare(linear_loo2, logistic_loo)
+
+# compare_models(linear_loo, logistic_loo)
+# print(compare_models(linear_loo, logistic_loo))
+
+earnings_nonzero = earnings[-which(earnings$earnk == 0),]
+# linear model
+ggplot() + 
+  geom_point(data = earnings_nonzero, mapping = aes(x = height, y = earnk, color = male), alpha = 0.5) + 
+  geom_abline(slope = 0.64, intercept = -25.64 + 10.72, color = "blue") + 
+  geom_abline(slope = 0.64, intercept = -25.64, color = "black") +
+  labs(x = "height", y = "earnk", title = "earnk vs. height")
+# logistic model
+ggplot() + 
+  geom_point(mapping = aes(x = earnings_nonzero$height, y = log(earnings_nonzero$earnk), color = earnings_nonzero$male), alpha = 0.5) + 
+  geom_abline(slope = 0.02, intercept = 1.08 + 0.37, color = "blue") + 
+  geom_abline(slope = 0.02, intercept = 1.08, color = "black") +
+  labs(x = "height", y = "log(earnk)", title = "log(earnk) vs. height")
+# logistic model is better for this data set
+
+```
+The outcome of this two model are different, loo_compare cannot be used here.
+
+
+### (b) 
+Compare models from other exercises in this chapter.
+```{r}
+mesquite <- read.table("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Mesquite/data/mesquite.dat", header = TRUE)
+dim(mesquite)
+group_by = rep(0, dim(mesquite)[1])
+group_by[which(mesquite$group == "MCD")] = 0
+group_by[-which(mesquite$group == "MCD")] = 1
+mesquite <- data.frame(mesquite, group_by = group_by)
+# weight ~ total_height + group_by
+
+# linear model
+model_12.7b = stan_glm(data = mesquite, weight ~ total_height + group_by)
+print(model_12.7b)
+# weight = -927.9 + 1032.1*total_height + -92.3*group_by
+ggplot() + 
+  geom_point(data = mesquite, mapping = aes(x = total_height, y = weight, color = group)) + 
+  geom_abline(slope = 1032.1, intercept = -927.9, color = "blue") + 
+  geom_abline(slope = 1032.1, intercept = -927.9 - -92.3, color = "red") + 
+  labs(x = "total height", y = "weight", title = "weight vs. total height")
+
+mesquite <- data.frame(mesquite, log_weight = log(mesquite$weight))
+# logistic model
+model_12.7b2 = stan_glm(data = mesquite, log_weight ~ total_height + group_by)
+print(model_12.7b2)
+# log(weight) = 3.7 + 1.6*total_height + -0.2*group_by
+ggplot() + 
+  geom_point(data = mesquite, mapping = aes(x = total_height, y = log_weight, color = group)) + 
+  geom_abline(slope = 1.6, intercept = 3.7, color = "blue") + 
+  geom_abline(slope = 1.6, intercept = 3.5, color = "red") + 
+  labs(x = "total height", y = "log(weight)", title = "log(weight) vs. total height")
+
+# in this dataset, log transformation is necessary
+```
+
+
+## 12.8 
+Log-log transformations: Suppose that, for a certain population of animals, we can predict log  weight from log height as follows:  
+
+* An animal that is 50 centimeters tall is predicted to weigh 10 kg.  
+
+* Every increase of 1% in height corresponds to a predicted increase of 2% in weight.  
+
+* The weights of approximately 95% of the animals fall within a factor of 1.1 of predicted  values.  
+
+### (a) 
+Give the equation of the regression line and the residual standard deviation of the regression.  
+```{r}
+# 50cm -> 10kg
+# log(weight) = b1*log(height) + b2 + error(~N(0, sd))
+log(10) - 2*log(50)
+# [1] -5.521461
+log(1.1)/2
+# [1] 0.04765509
+```
+regression line: log(weight) = 2*log(height) + (-0.69)
+residual sd = 0.05
+
+
+### (b) 
+Suppose the standard deviation of log weights is 20% in this population. What, then, is the $R^{2}$ of the regression model described here?  
+```{r}
+1 - (0.04765509/0.2)^2
+
+
+# ignore the following lines
+#########################################
+# a simple example to verify the calculation of R squared
+set.seed(1639)
+x = runif(10, min = 0, max = 1)
+error = rnorm(10, sd = 0.05, mean = 0)
+y = 2*x + 1 + error
+ggplot() + 
+  geom_point(mapping = aes(x = x, y = y))
+fit = lm(y ~ x)
+summary(fit)
+# R^2 = 0.6444
+mean(y)
+sum1 = 0
+sum2 = 0
+for (i in 1:10) {
+  sum1 = (fit$fitted.values[i] - y[i])^2 + sum1
+}
+sum1/10
+for (i in 1:10) {
+  sum2 = (y[i] - mean(y))^2 + sum2
+}
+1 - sum1/sum2
+#########################################
+```
+R^2 = 0.9432248
+
+
+## 12.9 
+Linear and logarithmic transformations: For a study of congressional elections, you would like  a measure of the relative amount of money raised by each of the two major-party candidates in  each district. Suppose that you know the amount of money raised by each candidate; label these  dollar values Di and Ri. You would like to combine these into a single variable that can be  included as an input variable into a model predicting vote share for the Democrats.  Discuss the advantages and disadvantages of the following measures:  
+
+### (a) 
+The simple difference, $D_{i}-R_{i}$  
+
+advantages: symmetric and centered at 0, easy to interpret the coefficient.
+disadvantages: not proportional, and it is not easy to campare the differences between different district.
+
+### (b) 
+The ratio, $D_{i}/R_{i}$   
+
+advantages: proportional, and reflect the relative size of the difference.
+disadvantages: asymmetric; center at i, hard to interpret.
+
+### (c) 
+The difference on the logarithmic scale, $log\ D_{i}-log\ R_{i}$   
+
+advantages: center at 0, better than (b)
+disadvantages: hard to interpret the regression coefficients.
+
+### (d) 
+The relative proportion, $D_{i}/(D_{i}+R_{i})$. 
+
+advantages: symmetric; easy to interpret.
+disadvantages: centered at 0.5.
+
+## 12.11
+Elasticity: An economist runs a regression examining the relations between the average price  of cigarettes, P, and the quantity purchased, Q, across a large sample of counties in the United  States, assuming the functional form, $logQ=\alpha+\beta logP$. Suppose the estimate for $\beta$ is 0.3.  Interpret this coefficient. 
+
+Interpretation:
+For each 1% difference in average price of cigarettes, the predicted difference in quantity purchased is 0.3%.
+
+
+## 12.13
+Building regression models: Return to the teaching evaluations data from Exercise 10.6. Fit  regression models predicting evaluations given many of the inputs in the dataset. Consider interactions, combinations of predictors, and transformations, as appropriate. Consider several  models, discuss in detail the final model that you choose, and also explain why you chose it rather than the others you had considered. 
+
+```{r}
+data_beauty = read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Beauty/data/beauty.csv", header = TRUE)
+# which(data_beauty$lower == 1)
+sample_n(data_beauty, 5)
+#
+plot(density(data_beauty$eval), main = "pdf of eval", lwd = 2)
+plot(density(data_beauty$beauty), main = "pdf of beauty", lwd = 2)
+plot(density(data_beauty$age), main = "pdf of age", lwd = 2)
+
+# STEP 1: consider transformation
+beauty_1 = lm(eval ~ beauty + female + age + minority + nonenglish + lower + course_id, data = data_beauty)
+summary(beauty_1)
+anova(beauty_1)['Residuals', 'Mean Sq']
+# MSE: 0.2826703
+# Multiple R-squared:  0.09578,	Adjusted R-squared:  0.08187 
+
+beauty_2 = lm(log(eval) ~ log(beauty) + female + age + minority + nonenglish + lower + course_id, data = data_beauty)
+summary(beauty_2)
+anova(beauty_2)['Residuals', 'Mean Sq']
+# Multiple R-squared:  0.1431,	Adjusted R-squared:  0.1076 
+# MSE: 0.01781312
+
+
+# STEP 2: variable selection
+# course_id seems make no sense to the outcome in our model, remove it!
+beauty_3 = lm(log(eval) ~ log(beauty) + female + age + minority + nonenglish + lower, data = data_beauty)
+summary(beauty_3)
+anova(beauty_3)['Residuals', 'Mean Sq']
+# Multiple R-squared:  0.1426,	Adjusted R-squared:  0.1123 
+# MSE: 0.01771862
+# nearly no difference
+
+# STEP 3: involve interaction
+beauty_4 = lm(log(eval) ~ log(beauty) + female + age + minority + nonenglish + lower + female:age, data = data_beauty)
+summary(beauty_4)
+anova(beauty_4)['Residuals', 'Mean Sq']
+# Multiple R-squared:  0.2621,	Adjusted R-squared:  0.2315 
+# MSE:0.01533919
+
+beauty_5 = lm(log(eval) ~ log(beauty) + female + age + minority + nonenglish + lower + female:age + minority:age, data = data_beauty)
+summary(beauty_5)
+anova(beauty_5)['Residuals', 'Mean Sq']
+# Multiple R-squared:  0.3036,	Adjusted R-squared:  0.2704 
+# MSE: 0.01456216
+
+beauty_6 = lm(log(eval) ~ log(beauty) + female + age + minority + nonenglish + lower + female:age + minority:age + lower:age, data = data_beauty)
+summary(beauty_6)
+anova(beauty_6)['Residuals', 'Mean Sq']
+# Multiple R-squared:  0.3213,	Adjusted R-squared:  0.2848 
+# MSE: 0.01427585
+# mean square error
+
+beauty_7 = lm(log(eval) ~ log(beauty) + female + age + minority + nonenglish + lower + female:age + minority:age + lower:age + female:lower, data = data_beauty)
+summary(beauty_7)
+anova(beauty_7)['Residuals', 'Mean Sq']
+
+# model check
+par(mfrow = c(2,2))
+plot(beauty_7)
+par(mfrow = c(1,1))
+plot(density(beauty_7$residuals), lwd = 2)
+# this might be the best linear model I can get in this dataset
+```
+
+
+## 12.14
+Prediction from a fitted regression: Consider one of the fitted models for mesquite leaves,  for example fit_4, in Section 12.6. Suppose you wish to use this model to make inferences  about the average mesquite yield in a new set of trees whose predictors are in data frame called  new_trees. Give R code to obtain an estimate and standard error for this population average.  You do not need to make the prediction; just give the code. 
+
+```{r}
+# don't run
+mesquite = read.table("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Mesquite/data/mesquite.dat", header = TRUE)
+sample_n(mesquite, 5)
+mesquite = data.frame(mesquite, canopy_area = mesquite$diam1*mesquite$diam2, canopy_shape = mesquite$diam1/mesquite$diam2, canopy_volume = mesquite$diam1*mesquite$diam2* mesquite$canopy_height)
+fit_4 <- stan_glm(formula = log(weight) ~ log(canopy_volume) + log(canopy_area) +
+log(canopy_shape) + log(total_height) + log(density) + group, data=mesquite)
+# estimate and standard error
+# estimate
+
+# not run # estimate  = predict.glm(fit_4, newdata = new_trees)
+# not run # sims_estimate = posterior_predict(fit_4, newdata = new_trees, draws = 1000)
+# not run # sd_average = mean(apply(sims_estimate, 2, sd))
+```
+

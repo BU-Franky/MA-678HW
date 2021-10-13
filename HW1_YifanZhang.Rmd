@@ -1,0 +1,571 @@
+---
+title: "HW 1 Solutions"
+date: "9/7/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load("bayesplot","knitr","arm","ggplot2","rstanarm")
+```
+
+## 7.2 Fake-data simulation and regression: 
+Simulate 100 data points from the linear model, y =  a + bx + error, with a = 5, b = 7, the values of x being sampled at random from a uniform  distribution on the range [0, 50], and errors that are normally distributed with mean 0 and standard deviation 3. 
+```{r}
+library(ggplot2)
+x = runif(100, min = 0, max = 50)
+error = rnorm(100, 0, 3)
+y = 5 + 7*x + error
+data_point = data.frame(x_value = x, y_value = y)
+ggplot(data = data_point) + 
+  geom_point(mapping = aes(x = x_value, y = y_value), color = "blue", alpha = 0.5) + 
+  geom_abline(intercept = 5, slope = 7, color = "red")
+```
+### 7.2a 
+Fit a regression line to these data and display the output. 
+
+```{r}
+model_7.2 = lm(y_value ~ x_value, data = data_point)
+summary(model_7.2)
+model_7.2$fitted.values
+```
+
+### 7.2b 
+Graph a scatterplot of the data and the regression line. 
+### 7.2c 
+Use the text function in R to add the formula of the fitted line to the graph. 
+```{r}
+fitted_7.2 = data.frame(x_value = x, y_value = model_7.2$fitted.values)
+ggplot() + 
+  geom_point(data = data_point, mapping = aes(x = x_value, y = y_value), color = "blue", alpha = 0.5) + 
+  geom_abline(intercept = 5, slope = 7, color = "red") + 
+  geom_line(data = fitted_7.2, mapping = aes(x = x_value, y = y_value), color = "green")
+```
+
+## 7.3 Fake-data simulation and fitting the wrong model: 
+Simulate 100 data points from the model,  y = a + bx + cx2 + error, with the values of x being sampled at random from a uniform  distribution on the range [0, 50], errors that are normally distributed with mean 0 and standard  deviation 3, and a, b, c chosen so that a scatterplot of the data shows a clear nonlinear curve. 
+
+
+### 7.3 a
+Fit a regression line stan_glm(y ~ x) to these data and display the output. 
+
+```{r}
+# wrong model?
+a_7.3 = 1
+b_7.3 = 2
+c_7.3 = 3
+set.seed(73)
+x_7.3 = runif(100, max = 50, min = 0)
+error_7.3 = rnorm(100, 0, 3)
+y_7.3 = a_7.3 + b_7.3*x_7.3 + c_7.3*x_7.3*x_7.3 +error_7.3
+data_point7.3 = data.frame(x_value = x_7.3, y_value = y_7.3)
+# regressin fit
+model_7.3 = stan_glm(y_7.3 ~ x_7.3)
+summary(model_7.3)
+```
+
+### 7.3b
+Graph a scatterplot of the data and the regression line. This is the best-fit linear regression.  What does “best-fit” mean in this context?
+
+```{r}
+# result visulization
+fitted_7.3 = data.frame(x_predict = x_7.3, y_predict = model_7.3$fitted.values)
+ggplot() + 
+  geom_point(data = data_point7.3, mapping = aes(x = x_value, y = y_value), color = "blue", alpha = 0.5) + 
+  geom_line(data = fitted_7.3, mapping = aes(x = x_predict, y = y_predict), color = "red") + 
+  theme_set(theme_gray())
+
+```
+Answer: "best-fit" here means the linear model that minmum mean square error between "y_fitted" and "y".
+
+
+## 7.6 Formulating comparisons as regression models: 
+Take the election forecasting model and simplify it by creating a binary predictor defined as x = 0 if income growth is less than 2% and x = 1 if  income growth is more than 2%. 
+
+```{r}
+# election forecasting model
+library("rstanarm")
+library("arm")
+library("ggplot2")
+library("bayesplot")
+hibbs = read.table("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/ElectionsEconomy/data/hibbs.dat",header = TRUE)
+dim(hibbs)
+library(dplyr)
+hibbs_7.6 = hibbs
+hibbs_7.6 = data.frame(hibbs_7.6, growth_0.02 = ifelse(hibbs_7.6$growth > 2, 1, 0))
+hibbs_7.6 = select(hibbs_7.6, year, growth_0.02, everything())
+```
+
+### 7.6a
+Compute the difference in incumbent party’s vote share on average, comparing those two  groups of elections, and determine the standard error for this difference.
+
+```{r}
+hibbs_7.6 = mutate(hibbs_7.6, difference = vote - mean(mean(hibbs_7.6$vote)))
+hibbs_7.6 %>%
+group_by(growth_0.02) %>%
+summarise(sd = sd(difference))
+```
+
+### 7.6b
+Regress incumbent party’s vote share on the binary predictor of income growth and check  that the resulting estimate and standard error are the same as above. 
+
+```{r}
+# ????
+# not understand at all
+model_7.6 = lm(hibbs_7.6$vote ~ hibbs_7.6$growth_0.02)
+summary(model_7.6)
+hibbs_7.6 = data.frame(hibbs_7.6, fittedvalues = model_7.6$fitted.values, fitteddifference = model_7.6$fitted.values - mean(model_7.6$fitted.values))
+```
+
+## 8.8 Comparing lm and stan_glm: 
+Use simulated data to compare least squares estimation to default Bayesian regression: 
+
+### 8.8a
+Simulate 100 data points from the model, y = 2 + 3x + error, with predictors x drawn from  a uniform distribution from 0 to 20, and with independent errors drawn from the normal  distribution with mean 0 and standard deviation 5. Fit the regression of y on x data using  lm and stan_glm (using its default settings) and check that the two programs give nearly  identical results. 
+
+```{r}
+set.seed(88)
+x_8.8 = runif(100, max = 20, min = 0)
+error_8.8 = rnorm(100, mean = 0, sd = 5)
+y_8.8 = 2 + 3*x_8.8 + error_8.8
+data_point8.8 = data.frame(x_value = x_8.8, y_value = y_8.8)
+ggplot() + 
+  geom_point(data = data_point8.8, mapping = aes(x = x_value, y = y_value), color = "blue") 
+model_lm_8.8 = lm(data = data_point8.8, y_value ~ x_value)
+model_glm_8.8 = glm(data = data_point8.8, y_value ~ x_value)
+summary(model_lm_8.8)
+summary(model_glm_8.8)
+anova(model_lm_8.8, model_glm_8.8)
+# totally identical
+```
+
+### 8.8b
+Plot the simulated data and the two fitted regression lines. 
+
+```{r}
+fitted_8.8lm = data.frame(x_value = x_8.8, y_predict = model_lm_8.8$fitted.values)
+fitted_8.8glm = data.frame(x_value = x_8.8, y_predict = model_glm_8.8$fitted.values)
+ggplot() + 
+  geom_point(data = data_point8.8, mapping = aes(x = x_value, y = y_value), alpha = 0.5) +
+  geom_line(data = fitted_8.8lm, mapping = aes(x = x_value, y = y_predict), color = "blue", lwd = 0.8) +
+  geom_line(data = fitted_8.8glm, mapping = aes(x = x_value, y = y_predict), color = "red")
+# no difference at all
+```
+
+### 8.8c
+Repeat the two steps above, but try to create conditions for your simulation so that lm and  stan_glm give much different results. 
+
+```{r,echo=F}
+# ???
+####################
+x_8.8 = runif(100, max = 20, min = 0)
+error_8.8 = rnorm(100, mean = 0, sd = 3)
+y_8.8 = 2 + 3*x_8.8  + error_8.8
+data_point8.8 = data.frame(x_value = x_8.8, y_value = y_8.8)
+ggplot() + 
+  geom_point(data = data_point8.8, mapping = aes(x = x_value, y = y_value), color = "blue") 
+model_lm_8.8 = lm(data = data_point8.8, y_value ~ x_value)
+model_glm_8.8 = glm(data = data_point8.8, y_value ~ x_value)
+summary(model_lm_8.8)
+summary(model_glm_8.8)
+anova(model_lm_8.8, model_glm_8.8)
+
+fitted_8.8lm = data.frame(x_value = x_8.8, y_predict = model_lm_8.8$fitted.values)
+fitted_8.8glm = data.frame(x_value = x_8.8, y_predict = model_glm_8.8$fitted.values)
+ggplot() + 
+  geom_point(data = data_point8.8, mapping = aes(x = x_value, y = y_value), alpha = 0.5) +
+  geom_line(data = fitted_8.8lm, mapping = aes(x = x_value, y = y_predict), color = "blue", lwd = 0.8) +
+  geom_line(data = fitted_8.8glm, mapping = aes(x = x_value, y = y_predict), color = "red")
+```
+
+## 10.1 Regression with interactions: 
+Simulate 100 data points from the model, y = b0 + b1 x +  b2 z + b3 xz + error, with a continuous predictor x and a binary predictor z, coefficients  b = c(1, 2, -1, -2), and errors drawn independently from a normal distribution with mean 0  and standard deviation 3, as follows. For each data point i, first draw zi, equally likely to take  on the values 0 and 1. Then draw xi from a normal distribution with mean zi and standard  deviation 1. Then draw the error from its normal distribution and compute yi. 
+
+### 10.1a
+Display your simulated data as a graph of y vs. x, using dots and circles for the points with  z = 0 and 1, respectively. 
+
+```{r}
+# data simulation
+error_10.1 = rnorm(100, mean = 0, sd = 3)
+z_10.1 = rbinom(100, 1, 0.5)
+x_10.1 = rep(0, times = 100)
+b_10.1 = c(1, 2, -1, -2)
+for (i in 1:100) {
+  x_10.1[i] = rnorm(1, mean = z_10.1[i], sd = 1)
+}
+y_10.1 = rep(0, times = 100)
+for (i in 1:100) {
+  y_10.1[i] = b_10.1[1] + 
+              b_10.1[2]*x_10.1[i] + 
+              b_10.1[3]*z_10.1[i] + 
+              b_10.1[4]*x_10.1[i]*z_10.1[i] + 
+              error_10.1[i]
+}
+```
+
+### 10.1b
+Fit a regression predicting y from x and z with no interaction. Make a graph with the data  and two parallel lines showing the fitted model. 
+
+```{r}
+data_10.1 = data.frame(x = x_10.1, y = y_10.1, z = z_10.1)
+data_10.1 = mutate(data_10.1, xz = x*z)
+model_10.1 = stan_glm(data = data_10.1, y ~ x + z)
+summary(model_10.1)
+model_10.1$coefficients
+# y_hat = 2.018789 + 1.200913*x + -3.634523*z
+data_10.1 = data.frame(data_10.1, fitted1 = model_10.1$fitted.values)
+ggplot(data = data_10.1) + 
+  geom_point(mapping = aes(x = x, y = y, color = z)) +
+  geom_abline(intercept = model_10.1$coefficients[1] + model_10.1$coefficients[3], slope = model_10.1$coefficients[2], color = "blue", lwd = 0.8) + 
+  geom_abline(intercept = model_10.1$coefficients[1], slope = model_10.1$coefficients[2], color = "black", lwd = 0.8)
+```
+
+### 10.1c
+Fit a regression predicting y from x, z, and their interaction. Make a graph with the data  and two lines showing the fitted model. 
+
+```{r}
+model_10.1.2 = stan_glm(data = data_10.1, y ~ x + z + xz)
+summary(model_10.1.2)
+model_10.1.2$coefficients
+# y_hat = 1.784539 + 2.148622*x + -1.263191*z + -2.453974*xz
+# z = 0, y_hat = 1.784539 + 2.148622*x 
+# z = 1, y_hat = 1.784539 + 2.148622*x + -1.263191 + -2.453974*x
+data_10.1 = data.frame(data_10.1, fitted2 = model_10.1.2$fitted.values)
+ggplot(data = data_10.1) + 
+  geom_point(mapping = aes(x = x, y = y, color = z)) +
+  geom_abline(intercept = model_10.1.2$coefficients[1] + model_10.1.2$coefficients[3], slope = model_10.1.2$coefficients[2] + model_10.1.2$coefficients[4], color = "blue", lwd = 0.8) + 
+  geom_abline(intercept = model_10.1.2$coefficients[1], slope = model_10.1.2$coefficients[2], color = "black", lwd = 0.8)
+
+
+```
+
+
+## 10.2 Regression with interactions: 
+Here is the output from a fitted linear regression of outcome y on  pre-treatment predictor x, treatment indicator z, and their interaction: 
+
+```{r}
+#             Median MAD_SD
+# (Intercept) 1.2    0.2
+# x           1.6    0.4
+# z           2.7    0.3
+# x:z         0.7    0.5
+```
+
+### 10.2a
+Write the equation of the estimated regression line of y on x for the treatment group and the  control group, and the equation of the estimated regression line of y on x for the control group. 
+
+Answer: 1) y = 3.9 + 2.3*x
+        2) y = 1.2 + 1.6*x
+
+### 10.2b
+Graph with pen on paper the two regression lines, assuming the values of x fall in the range  (0, 10). On this graph also include a scatterplot of data (using open circles for treated units  and dots for controls) that are consistent with the fitted model. 
+
+```{r}
+# simulation points
+set.seed(102)
+x_10.2 = runif(100, 0, 10)
+z_10.2 = rbinom(100,1,0.5)
+error_10.2 = rnorm(100, sd = 2)
+y_10.2 = 1.2 + 1.6*x_10.2 + 2.7*z_10.2 + 0.7*x_10.2*z_10.2 + error_10.2
+data_10.2 = data.frame(x = x_10.2, y = y_10.2, z = z_10.2, xz = x_10.2*z_10.2)
+ggplot() + 
+  geom_abline(intercept = 3.9, slope = 2.3, lwd = 0.8, color = "blue") + 
+  geom_abline(intercept = 1.2, slope = 1.6, lwd = 0.8) + 
+  geom_point(data = data_10.2, mapping = aes(x = x, y = y, color = z))
+```
+
+## 10.5 Regression modeling and prediction: 
+The folder KidIQ contains a subset of the children and  mother data discussed earlier in the chapter. You have access to children’s test scores at age 3,  mother’s education, and the mother’s age at the time she gave birth for a sample of 400 children. 
+
+```{r}
+library(rstanarm)
+dim(kidiq)
+ggplot(data = kidiq) + 
+  geom_point(mapping = aes(x = mom_iq, y = kid_score, color = mom_hs))
+```
+
+### 10.5a
+Fit a regression of child test scores on mother’s age, display the data and fitted model,  check assumptions, and interpret the slope coefficient. Based on this analysis, when  do you recommend mothers should give birth? What are you assuming in making this  recommendation? 
+
+```{r}
+ggplot(data = kidiq) + 
+  geom_bar(mapping = aes(x = mom_age))
+model_10.5 = lm(data = kidiq, kid_score ~ mom_age)
+summary(model_10.5)
+model_10.5$coefficients
+ggplot() + 
+  geom_point(data = kidiq, mapping = aes(x = mom_age, y = kid_score)) + 
+  geom_abline(intercept = model_10.5$coefficients[1], slope = model_10.5$coefficients[2], color = "red", lwd = 0.8)
+```
+Answer: mom_age is positively related with kid_score at 3 years old since the slope of the fitted model is positive. I recommend mother shold give birth at over 30 years old.
+
+### 10.5b
+Repeat this for a regression that further includes mother’s education, interpreting both slope  coefficients in this model. Have your conclusions about the timing of birth changed? 
+
+```{r}
+model_10.5b = lm(data = kidiq, kid_score ~ mom_age + mom_hs)
+summary(model_10.5b)
+model_10.5b$coefficients
+# kid_score_hat =  70.4786610 + 0.3261332*mom_age + 11.3112315*mom_hs
+# mom_hs = 1: kid_score_hat =  70.4786610 + 0.3261332*mom_age + 11.3112315
+# mom_hs = 1: kid_score_hat =  70.4786610 + 0.3261332*mom_age 
+ggplot(data = kidiq) + 
+  geom_point(mapping = aes(x = mom_age, y = kid_score, color = mom_hs)) + 
+  geom_abline(intercept = model_10.5b$coefficients[1] + model_10.5b$coefficients[3], slope = model_10.5b$coefficients[2], color = "blue", lwd = 0.8) + 
+   geom_abline(intercept = model_10.5b$coefficients[1], slope = model_10.5b$coefficients[2], lwd = 0.8)
+
+```
+Answer: no 
+
+### 10.5c
+Now create an indicator variable reflecting whether the mother has completed high school or  not. Consider interactions between high school completion and mother’s age. Also create a  plot that shows the separate regression lines for each high school completion status group. 
+
+```{r}
+# "create an indicator variable reflecting whether the mother has completed high school or  not"
+# already exisit? mon_hs?
+kidiq_inter = mutate(kidiq, inter = mom_hs*mom_age)
+model_10.5c = lm(data = kidiq_inter, kid_score ~ mom_age + mom_hs + inter)
+model_10.5c$coefficients
+# kid_score_hat = 110.541718 + -1.522014*mom_age + -41.287465*mom_hs + 2.391098*mom_age*mom_hs
+# hs: kid_score_hat = 110.541718 + -1.522014*mom_age -41.287465 + 2.391098*mom_age
+# no : kid_score_hat = 110.541718 + -1.522014*mom_age
+
+ggplot(data = kidiq_inter) + 
+  geom_point(mapping = aes(x = mom_age, y = kid_score, color = mom_hs)) + 
+  geom_abline(intercept = model_10.5c$coefficients[1] + model_10.5c$coefficients[3], slope = model_10.5c$coefficients[2] + model_10.5c$coefficients[4], color = "blue", lwd = 0.8) + 
+   geom_abline(intercept = model_10.5c$coefficients[1], slope = model_10.5c$coefficients[2], lwd = 0.8)
+```
+
+### 10.5d
+Finally, fit a regression of child test scores on mother’s age and education level for the first  200 children and use this model to predict test scores for the next 200. Graphically display  comparisons of the predicted and actual scores for the final 200 children. 
+
+```{r}
+# regression model fit
+training = kidiq[1:200,]
+training = mutate(training, inter = mom_iq*mom_hs)
+test = kidiq[201:400,]
+model_10.5d = lm(data = training, kid_score ~ mom_iq + mom_hs + inter)
+summary(model_10.5d)
+model_10.5d$coefficients
+# training graph
+ggplot() + 
+  geom_point(data = training, mapping = aes(x = mom_iq, y = kid_score, color = mom_hs)) + 
+  geom_abline(intercept = model_10.5d$coefficients[1] + model_10.5d$coefficients[3],
+              slope = model_10.5d$coefficients[2] + model_10.5d$coefficients[4], color = "blue",                lwd = 0.8) + 
+  geom_abline(intercept = model_10.5d$coefficients[1], 
+              slope = model_10.5d$coefficients[2], lwd = 0.8)
+# test graph
+ggplot() + 
+  geom_point(data = test, mapping = aes(x = mom_iq, y = kid_score, color = mom_hs)) + 
+  geom_abline(intercept = model_10.5d$coefficients[1] + model_10.5d$coefficients[3],
+              slope = model_10.5d$coefficients[2] + model_10.5d$coefficients[4], color = "blue",                lwd = 0.8) + 
+  geom_abline(intercept = model_10.5d$coefficients[1], 
+              slope = model_10.5d$coefficients[2], lwd = 0.8)
+
+```
+
+## 10.6 Regression models with interactions: 
+The folder Beauty contains data (use file beauty.csv)  Beauty and  teaching  evaluations  from Hamermesh and Parker (2005) on student evaluations of instructors’ beauty and teaching  quality for several courses at the University of Texas. The teaching evaluations were conducted  at the end of the semester, and the beauty judgments were made later, by six students who had  not attended the classes and were not aware of the course evaluations. 
+
+See also Felton, Mitchell, and Stinson (2003) for more on this topic. 
+
+```{r}
+beauty = read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Beauty/data/beauty.csv", header = TRUE)
+beauty
+ggplot(data = beauty) + 
+  geom_bar(mapping = aes(x = female, y = ..prop.., group = 1), width = 0.5)
+ggplot(data = beauty) + 
+  geom_bar(mapping = aes(x = course_id, y = ..prop.., group = 1))
+ggplot(data = beauty) + 
+  geom_bar(mapping = aes(x = nonenglish, y = ..prop.., group = 1), width = 0.5)
+```
+
+### 10.6a
+Run a regression using beauty (the variable beauty) to predict course evaluations (eval),  adjusting for various other predictors. Graph the data and fitted model, and explain the  meaning of each of the coefficients along with the residual standard deviation. Plot the  residuals versus fitted values. 
+
+```{r}
+# only variable beauty
+model_10.6a = lm(data = beauty, eval ~ beauty)
+summary(model_10.6a)
+model_10.6a$coefficients
+ggplot() + 
+  geom_point(data = beauty, mapping = aes(x = beauty, y = eval)) +
+  geom_abline(intercept = model_10.6a$coefficients[1], slope = model_10.6a$coefficients[2], color = "blue", lwd = 0.8)
+# other predictors
+model_10.6a.1 = lm(data = beauty, eval ~ age)
+summary(model_10.6a.1)
+# Adjusted R-squared:  0.0005091
+# residual standard error: 0.5547 
+# p-value: 0.267
+model_10.6a.1$coefficients
+ggplot() + 
+  geom_point(data = beauty, mapping = aes(x = age, y = eval)) +
+  geom_abline(intercept = model_10.6a.1$coefficients[1], slope = model_10.6a.1$coefficients[2], color = "blue", lwd = 0.8)
+
+model_10.6a.2 = lm(data = beauty, eval ~ age + female)
+summary(model_10.6a.2)
+# Adjusted R-squared:  0.02788 
+# Residual standard error: 0.5471
+# p-value: 0.0005521
+
+beauty = mutate(beauty, age_female = age*female)
+beauty = mutate(beauty, beauty_female = beauty*female)
+
+model_10.6a.3 = lm(data = beauty, eval ~ age + female + age_female)
+summary(model_10.6a.3)
+# Adjusted R-squared:  0.0338
+# Residual standard error: 0.5454
+# p-value: 0.0003015
+
+model_10.6a.4 = lm(data = beauty, eval ~ beauty + female + beauty_female)
+summary(model_10.6a.4)
+# Adjusted R-squared:  0.0665 
+# Residual standard error: 0.5361
+# p-value: 1.471e-07
+
+# choose the best one to compute residuals versus fitted values
+beauty = data.frame(beauty, model2residual = model_10.6a.2$residuals)
+beauty = data.frame(beauty, model2fitted = model_10.6a.2$fitted.values)
+ggplot(data = beauty) +
+  geom_line(mapping = aes(x = model2fitted, y = model2residual))
+ggplot(data = beauty) + 
+  geom_line(mapping = aes(x = eval, y = model2residual))
+# in this model, residual is obviously positively related with 'eval'
+```
+
+### 10.6b
+Fit some other models, including beauty and also other predictors. Consider at least one  model with interactions. For each model, explain the meaning of each of its estimated  coefficients.
+
+```{r}
+model_10.6b = lm(data = beauty, eval ~ beauty + female + beauty_female)
+summary(model_10.6b)
+# Adjusted R-squared:  0.0665 
+# Residual standard error: 0.5361
+# p-value: 1.471e-07
+model_10.6b$coefficients
+```
+explanation: the Intercept Estimated value means: the predicted evalution scores of a male with beauty = 0; the beauty estimated value means the slope of male's "eval versus beauty" predict line; the famle estimated value means the prediced difference between female and male with the same beauty value(beauty = 0); the beauty:female value means the difference of slope between female and male's predict line.
+
+## 10.7 Predictive simulation for linear regression:
+Take one of the models from the previous exercise.
+
+### 10.7a
+Instructor A is a 50-year-old woman who is a native English speaker and has a beauty score  of -1. Instructor B is a 60-year-old man who is a native English speaker and has a beauty  score of -0.5. Simulate 1000 random draws of the course evaluation rating of these two  instructors. In your simulation, use posterior_predict to account for the uncertainty in  the regression parameters as well as predictive uncertainty. 
+
+```{r}
+model_10.7 = stan_glm(data = beauty, eval ~ beauty + female)
+summary(model_10.7)
+instructor_A = data.frame(age = 50, female = 1, minority = 0, nonenglish = 0, beauty = -1)
+instructor_B = data.frame(age = 60, female = 0, minority = 0, nonenglish = 0, beauty = -0.5)
+#Coefficients:
+#            Estimate Std. Error t value Pr(>|t|)    
+#(Intercept)  4.09471    0.03328  123.03  < 2e-16 ***
+#beauty       0.14859    0.03195    4.65 4.34e-06 ***
+#female      -0.19781    0.05098   -3.88  0.00012 ***
+simulation_A = posterior_predict(model_10.7, newdata = instructor_A, draws = 1000)
+simulation_B = posterior_predict(model_10.7, newdata = instructor_B, draws = 1000)
+compare_AB = data.frame(number = c(1:1000), A = simulation_A, B = simulation_B, difference = simulation_A - simulation_B)
+colnames(compare_AB) = c("number","simulation_A","simulation_B","difference")
+# regression parameters simulation
+sims = as.matrix(model_10.7)
+apply(sims, 2, mad)
+apply(sims, 2, mean)
+###
+```
+
+### 10.7b
+Make a histogram of the difference between the course evaluations for A and B. What is the  probability that A will have a higher evaluation? 
+
+```{r}
+# histogram
+compare_AB = data.frame(compare_AB, win_or_not = ifelse(compare_AB$difference > 0, "YES", "NO"))
+ggplot()+
+  geom_histogram(mapping = aes(simulation_A[,1], fill = "red"), alpha = 0.5, binwidth = 0.1) + 
+  geom_histogram(mapping = aes(simulation_B[,1], fill = "blue"), alpha = 0.5, binwidth = 0.1)
+ggplot() + 
+  geom_bar(data = compare_AB, mapping = aes(x = win_or_not, y = ..prop.., group = 1), width = 0.3)
+# under the model I built, the probability A will win is approximately 0.4
+```
+
+## 10.8 How many simulation draws: 
+Take the model from Exercise 10.6 that predicts course evaluations  from beauty and other predictors. 
+
+### 10.8a
+Display and discuss the fitted model. Focus on the estimate and standard error for the  coefficient of beauty. 
+
+```{r}
+#Coefficients:
+#            Estimate Std. Error t value Pr(>|t|)    
+#(Intercept)  4.09471    0.03328  123.03  < 2e-16 ***
+#beauty       0.14859    0.03195    4.65 4.34e-06 ***
+#female      -0.19781    0.05098   -3.88  0.00012 ***
+```
+the estimate value of variable 'beauty' is 0.14859, and the standard error is 0.03195.
+
+### 10.8b
+Compute the median and mad sd of the posterior simulations of the coefficient of beauty,  and check that these are the same as the output from printing the fit. 
+
+```{r}
+sims = as.matrix(model_10.7)
+median_10.8b = apply(sims, 2, median)
+mad_sd_10.8b = apply(sims, 2, mad)
+result10.8b = rbind(median_10.8b, mad_sd_10.8b)
+#check
+model_10.7$coefficients
+result10.8b
+```
+"not exactly the same!!"
+
+### 10.8c
+Fit again, this time setting iter = 1000 in your stan_glm call. Do this a few times in order to get a sense of the simulation variability. 
+
+```{r}
+model_10.8.c = stan_glm(data = beauty, eval ~ beauty + female, iter = 1000)
+sims_10.8c = as.matrix(model_10.8.c)
+median_10.8.c = apply(sims_10.8c, 2, median)
+mad_sd_10.8.c = apply(sims_10.8c, 2, mad)
+result10.8c = rbind(median_10.8.c, mad_sd_10.8.c)
+result10.8c
+```
+
+### 10.8d
+Repeat the previous step, setting iter = 100 and then iter = 10. 
+
+```{r}
+model_10.8.d1 = stan_glm(data = beauty, eval ~ beauty + female, iter = 100)
+sims_10.8d1 = as.matrix(model_10.8.d1)
+median_10.8.d1 = apply(sims_10.8d1, 2, median)
+mad_sd_10.8.d1 = apply(sims_10.8d1, 2, mad)
+result10.8d1 = rbind(median_10.8.d1, mad_sd_10.8.d1)
+
+model_10.8.d2 = stan_glm(data = beauty, eval ~ beauty + female, iter = 10)
+sims_10.8d2 = as.matrix(model_10.8.d2)
+median_10.8.d2 = apply(sims_10.8d2, 2, median)
+mad_sd_10.8.d2 = apply(sims_10.8d2, 2, mad)
+result10.8d2 = rbind(median_10.8.d2, mad_sd_10.8.d2)
+
+result10.8d1
+result10.8d2
+
+result = rbind(model_10.7$coefficients, median_10.8b[1:3],median_10.8.c[1:3],median_10.8.d1[1:3],median_10.8.d2[1:3])
+rownames(result) = c("regression","10.8b","10.8c","10.8d1","10.8d2")
+result
+```
+
+### 10.8e
+How many simulations were needed to give a good approximation to the mean and standard  error for the coefficient of beauty? 
+
+           (Intercept)     beauty     female
+regression    4.094243 0.14817834 -0.1956026
+10.8b         4.094243 0.14817834 -0.1956026
+10.8c         4.096638 0.14901712 -0.2006891
+10.8d1        4.099378 0.15122924 -0.2019813
+10.8d2        1.468974 0.03864814  1.1264621
+
+Answer: 2000 iterations. the more the better
+
+
+
+

@@ -1,0 +1,620 @@
+---
+title: "MA678 Homework 4"
+author: "Yifan ZHang"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Disclaimer
+
+A few things to keep in mind :  
+1) Use set.seed() to make sure that the document produces the same random simulation as when you ran the code.  
+2) Use refresh=0 for any stan_glm() or stan-based model. lm() or non-stan models don't need this!  
+3) You can type outside of the r chunks and make new r chunks where it's convenient. Make sure it's clear which questions you're answering.  
+4) Even if you're not too confident, please try giving an answer to the text responses!  
+5) Please don't print data in the document unless the question asks. It's good for you to do it to look at the data, but not as good for someone trying to read the document later on.  
+6) Check your document before submitting! Please put your name where "name" is by the author!
+
+
+
+# 13.5
+
+Interpreting logistic regression coefficients: Here is a fitted model from the Bangladesh analysis  predicting whether a person with high-arsenic drinking water will switch wells, given the  arsenic level in their existing well and the distance to the nearest safe well:  
+
+stan_glm(formula = switch ~ dist100 + arsenic, family=binomial(link="logit"),  data=wells)  
+
+Median MAD_SD  
+(Intercept) 0.00 0.08  
+dist100 -0.90 0.10  
+arsenic 0.46 0.04  
+
+Compare two people who live the same distance from the nearest well but whose arsenic levels  differ, with one person having an arsenic level of 0.5 and the other person having a level of  1.0. You will estimate how much more likely this second person is to switch wells. Give an approximate estimate, standard error, 50% interval, and 95% interval, using two different  methods:  
+
+## (a) 
+Use the divide-by-4 rule, based on the information from this regression output.  
+```{r}
+library(dplyr)
+wells <- read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Arsenic/data/wells.csv", header = TRUE)
+sample_n(wells, 5)
+.46/4
+.90/4
+```
+with distance fixed, a difference of 1 arsenic level corresponds to no more than 11.5% positive difference in the probability of switching wells; similarly, with arsenic level fixed, a difference of 100 distance corresponds to no more than 22.5% negative difference in the probability of switching wells.
+
+
+## (b) 
+Use predictive simulation from the fitted model in R, under the assumption that these two  people each live 50 meters from the nearest safe well. 
+```{r}
+library(rstanarm)
+fit_1 <- stan_glm(formula = switch ~ dist100 + arsenic, family=binomial(link="logit"),  data=wells, refresh = 0)  
+# using predictive simulation 
+new_data <- data.frame(arsenic <- c(0.5, 1), dist100 <- c(0.5, 0.5))
+epred = posterior_epred(fit_1, newdata = new_data, draws = 1000)
+diff = epred[,2] - epred[,1]
+
+# methods one: using normal distribution statistic
+sd_n = sd(diff)/sqrt(length(diff))
+method1_CI_50 <- data.frame(lower = mean(diff) - 0.68*sd_n, upper = mean(diff) + 0.68*sd_n)
+method1_CI_95 <- data.frame(lower = mean(diff) - 1.96*sd_n, upper = mean(diff) + 1.96*sd_n)
+
+# method two: using chi-square distribution statistic
+# mean(epred[,1])
+# sd(epred[,1])
+# mean(epred[,2])
+# sd(epred[,2])
+# mean(epred[,2]) - mean(epred[,1])
+sqrt(sd(epred[,1])^2 + sd(epred[,2])^2)
+# prob_p1 ~ N(mean = 0.446, sigma = 0.0143)
+# prob_p2 ~ N(mean = 0.504, sigma = 0.0111)
+# thus, prob_p2 - prob_p1 <- diff[i] ~ N(mean = 0.0575, sigma = 0.0181)
+norm <- (diff - (mean(epred[,2]) - mean(epred[,1])))/sqrt(sd(epred[,1])^2 + sd(epred[,2])^2)
+plot(density(norm))
+# norm follows N(0, 1) distribution
+method2_CI_50 <- data.frame(lower = mean(diff) - (sqrt(qchisq(.50, df=999)/1000)*sd(diff))/sqrt(1000), upper = mean(diff) + (sqrt(qchisq(.50, df=999)/1000)*sd(diff))/sqrt(1000))
+method2_CI_95 <- data.frame(lower = mean(diff) - (sqrt(qchisq(.95, df=999)/1000)*sd(diff))/sqrt(1000), upper = mean(diff) + (sqrt(qchisq(.95, df=999)/1000)*sd(diff))/sqrt(1000))
+```
+the second person is 5.75% more likely to switch wells than the first one; the standard error equals to 8.112963e-05, 50% interval and 95% interval are (5.71%, 5.74%) and (5.69%, 5.75%) respectively.
+
+# 13.7
+
+Graphing a fitted logistic regression: We downloaded data with weight (in pounds) and age (in  years) from a random sample of American adults. We then defined a new variable:  heavy <- weight > 200  and fit a logistic regression, predicting heavy from height (in inches):  
+stan_glm(formula = heavy ~ height, family=binomial(link="logit"), data=health)  
+            Median MAD_SD  
+(Intercept) -21.51 1.60  
+height        0.28 0.02  
+
+## (a) 
+Graph the logistic regression curve (the probability that someone is heavy) over the  approximate range of the data. Be clear where the line goes through the 50% probability  point.  
+```{r}
+# equation: Pr(heavy = 1) = invlogit(-21.51 + 0.28*height)
+(21.51)/0.28
+library(ggplot2)
+f1 <- function(height){
+  Prob <- invlogit(-21.51 + 0.28*height)
+  d = data.frame(probability = Prob, height = height)
+  return(d)
+}
+x = seq(0, 200, 1)
+ggplot(data = f1(x), aes(x = height, y = probability)) + 
+  geom_line(color = "skyblue", lwd = 1) + 
+  geom_abline(intercept = .50, slope = 0, color = "red") + 
+  geom_point(data = data.frame(probability = .50, height = (21.51)/0.28), mapping = aes(x = height, y = probability), color = "red")
+```
+the 50% probability point is (76.82, .50)
+
+## (b) 
+Fill in the blank: near the 50% point, comparing two people who differ by one inch in height,  you’ll expect a difference of __7%__ in the probability of being heavy. (hint: divide-by-4 rule)
+
+# 13.8
+Linear transformations: In the regression from the previous exercise, suppose you replaced  height in inches by height in centimeters. What would then be the intercept and slope? 
+
+1 inch = 2.56 cm, let height_cm = height*2.56, thus height = height_cm/2.56. replace into the function, Pr(heavy = 1) = logit(-21.51 + 0.28height) -> Pr(heavy = 1) = logit(-21.51 + 0.28height_cm/2.56) = logit(-21.51 + 0.11 height_cm).
+hence, intercept = -21.51 and slope = 0.11. 
+ 
+# 13.10
+Expressing a comparison of proportions as a logistic regression: A randomized experiment  is performed within a survey, and 1000 people are contacted. Half the people contacted are  promised a $5 incentive to participate, and half are not promised an incentive. The result is a  50% response rate among the treated group and 40% response rate among the control group.  
+
+## (a) 
+Set up these results as data in R. From these data, fit a logistic regression of response on the  treatment indicator.  
+```{r}
+x = rep(c(1, 0), c(500, 500))
+y1 = rep(NA, 500)
+y2 = rep(NA, 500)
+set.seed(1310)
+sample1 = sample(500, 250, replace = FALSE)
+sample2 = sample(500, 200, replace = FALSE)
+# sample2
+y1[sample1] = 1
+y1[-sample1] = 0
+y2[sample2] = 1
+y2[-sample2] = 0
+survey <- data.frame(response = c(y1,y2), treatment = x)
+fit_13.10 <- glm(response ~ treatment, data = survey, family = binomial)
+summary(fit_13.10)$coefficients
+
+print(fit_13.10, digits = 2)
+# presentation
+# Coefficients:
+# (Intercept)    treatment  
+#       -0.41         0.41  
+f2 <- function(treatment){
+  response <- invlogit(-0.41 + 0.41*treatment)
+  d = data.frame(response = response, treatment = treatment)
+  return(d)
+}
+# ggplot() + 
+#   geom_line(data = f2(seq(-25, 25, 0.01)), mapping = aes(x = treatment, y = response))
+ggplot() + 
+  geom_line(data = f2(seq(0, 1, 0.01)), mapping = aes(x = treatment, y = response), color = "tomato1", lwd = .8)
+```
+
+## (b) 
+Compare to the results from Exercise 4.1. 
+```{r}
+ggplot() + 
+  geom_line(data = f2(seq(0, 1, 0.01)), mapping = aes(x = treatment, y = response), color = "tomato1", lwd = 1) + 
+  geom_abline(intercept = 0.4, slope = 0.1, color = "cornflowerblue", lwd = 0.8)
+```
+almost the same result!
+
+# 13.11
+Building a logistic regression model: The folder Rodents contains data on rodents in a sample  of New York City apartments.  
+
+## (a) 
+Build a logistic regression model to predict the presence of rodents (the variable rodent2 in  the dataset) given indicators for the ethnic groups (race). Combine categories as appropriate.  Discuss the estimated coefficients in the model.  
+
+```{r}
+Rodents <- read.table("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Rodents/rodents.dat", header = TRUE)
+sample_n(Rodents, 5)
+rodent_t <-Rodents[-which(is.na(Rodents$rodent2)), ]
+fit_13.11 <- glm(rodent2 ~ race, data = rodent_t, family = binomial)
+# 1=White (non-hispanic) 
+# 2=Black (non-hispanic) 
+# 3=Puerto Rican 
+# 4=Other Hispanic 
+# 5=Asian/Pacific Islander 
+# 6=Amer-Indian/Native Alaskan 
+# 7=Two or more races
+# rodent2: Rodents in building(0/1)
+print(fit_13.11, digits = 2)
+# rodent2 = -1.91 + 0.31*race
+ggplot() + 
+  geom_line(data = data.frame(rodent2 = invlogit(-1.91 + 0.31*seq(1, 7, 0.01)), race = seq(1, 7, 0.01)), mapping = aes(x = race, y = rodent2), color = "tomato1", lwd = .8)
+```
+coefficients discussion:
+logit(rodent2) = -1.91 + .31*race, since race can not be zero, interpretation of intercept is meaningless. As to coefficient of race, every unit increase of race is relative to .31 positive change to odds of rodent2.
+
+## (b) 
+Add to your model some other potentially relevant predictors describing the apartment, building, and community district. Build your model using the general principles explained in Section 12.6. Discuss the coefficients for the ethnicity indicators in your model. 
+
+```{r}
+fit_b1 <- glm(rodent2 ~ ., data = rodent_t, family = binomial)
+summary(fit_b1)
+```
+
+
+# 14.3
+Graphing logistic regressions: The well-switching data described in Section 13.7 are in the  folder Arsenic.
+
+## (a)
+Fit a logistic regression for the probability of switching using log (distance to nearest safe  well) as a predictor.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(rstanarm)
+wells <- read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Arsenic/data/wells.csv", header = TRUE)
+wells_l <- wells %>%
+  data.frame(log_dist = log(wells$dist))
+fit_14.3 <- glm(switch ~ log_dist, data = wells_l, family = binomial)
+summary(fit_14.3)
+```
+
+## (b)
+Make a graph similar to Figure 13.8b displaying Pr(switch) as a function of distance to  nearest safe well, along with the data.
+
+```{r}
+# jitter function
+jitter_binary <- function(a, jitt=0.05){
+     ifelse(a==0, runif(length(a), 0, jitt), runif(length(a), 1 - jitt, 1))
+}
+wells_l$switch_jitter <- jitter_binary(wells_l$switch)
+b = fit_14.3$coefficients
+plot_data <- data.frame(y = invlogit(b[1] + b[2]*seq(min(wells_l$log_dist), max(wells_l$log_dist), 0.01)), x = seq(min(wells_l$log_dist), max(wells_l$log_dist), 0.01))
+ggplot() + 
+  geom_point(data = wells_l, mapping = aes(x = wells_l$log_dist, y = wells_l$switch_jitter), color = "blue3", size = 0.5) + 
+  geom_line(data = plot_data, mapping = aes(x = x, y = y), color = "tomato1", lwd = .8) + 
+  xlab("log(distance)") + ylab("switching well")
+```
+
+
+
+
+## (c)
+Make a residual plot and binned residual plot as in Figure 14.8.
+
+```{r}
+par(mfrow = c(2,2))
+plot(fit_14.3)
+par(mfrow = c(1,1))
+# the first plot is residual plot
+# binned residual
+library(arm)
+# x <- The expected values from the logistic regression.
+# y <- The residuals values from logistic regression (observed values minus expected values).
+pred <- predict(fit_14.3, newdata = wells_l, type = "response")
+residue <- wells_l$switch - pred
+binnedplot(pred, residue, xlab = "Estimated Pr(switching)", ylab = "Average residual")
+```
+
+
+## (d)
+Compute the error rate of the fitted model and compare to the error rate of the null model.
+
+```{r}
+# compute the error rate
+error_rate <- mean((pred>.5&wells_l$switch==0) | (pred<.5&wells_l$switch==1))
+null_p <- mean(wells_l$switch)
+error_null <- mean((null_p>.5&wells_l$switch==0) | (null_p<.5&wells_l$switch==1))
+```
+error rate of the fitted model is .419 and error rate of null model is .425
+
+## (e)
+Create indicator variables corresponding to dist<100; dist between 100 and 200; and dist>200. Fit a logistic regression for Pr(switch) using these indicators. With this new  model, repeat the computations and graphs for part (a) of this exercise.
+
+```{r}
+wells_l$indicator_dist <- rep(NA, dim(wells_l)[1])
+for (i in 1:dim(wells_l)[1]) {
+  if(wells_l$dist[i]<100){
+    wells_l$indicator_dist[i] = 0
+  }
+  if(wells_l$dist[i]>100 & wells_l$dist[i]<200){
+    wells_l$indicator_dist[i] = 1
+  }
+    if(wells_l$dist[i]>200){
+    wells_l$indicator_dist[i] = 2
+  }
+}
+which(is.na(wells_l$indicator_dist))
+fit_14e <- glm(switch ~ indicator_dist, data = wells_l, family = binomial)
+summary(fit_14e)
+b <- fit_14e$coefficients
+# indicator jitter
+jitter_indicator <- function(a, jitt=0.5){
+  r = rep(NA, length(a))
+  for (i in 1:length(a)) {
+    if(a[i]==0){
+      r[i] = runif(1, 0, jitt)
+    }
+    if(a[i]==1){
+      r[i] = runif(1, 1 - jitt, 1)
+    }
+    if(a[i]==2){
+      r[i] = runif(1, 2 - jitt, 2)
+    }
+  }
+  return(r)
+}
+# jitter_indicator(c(0,1,2))
+wells_l$indicator_jitter <- jitter_indicator(wells_l$indicator_dist)
+
+ggplot() + 
+  geom_point(data = wells_l, mapping = aes(x = wells_l$indicator_jitter, y = wells_l$switch_jitter), color = "blue3", size = 0.5) + 
+  geom_line(data = data.frame(y = invlogit(b[1] + b[2]*seq(min(wells_l$indicator_dist), max(wells_l$indicator_dist), 0.01)), x = seq(min(wells_l$indicator_dist), max(wells_l$indicator_dist), 0.01)), mapping = aes(x = x, y = y), color = "tomato1", lwd = .8)
+
+par(mfrow = c(2,2))
+plot(fit_14e)
+par(mfrow = c(1,1))
+# the first plot is residual plot
+# binned residual
+library(arm)
+# x <- The expected values from the logistic regression.
+# y <- The residuals values from logistic regression (observed values minus expected values).
+pred <- predict(fit_14e, newdata = wells_l, type = "response")
+residue <- wells_l$switch - pred
+binnedplot(pred, residue, xlab = "Estimated Pr(switching)", ylab = "Average residual")
+
+error_rate <- mean((pred>.5&wells_l$switch==0) | (pred<.5&wells_l$switch==1))
+null_p <- mean(wells_l$switch)
+error_null <- mean((null_p>.5&wells_l$switch==0) | (null_p<.5&wells_l$switch==1))
+```
+error of new model is .409, which is lower than the former one. what's noticable is that, since predictor is classificatory, the predictions are classificatory, which means binned plot makes no sense!
+
+#14.5
+Working with logistic regression: In a class of 50 students, a logistic regression is performed  of course grade (pass or fail) on midterm exam score (continuous values with mean 60 and standard deviation 15). The fitted model is Pr(pass) = logit-1(-24 + 0.4x).
+
+## (a)
+Graph the fitted model. Also on this graph put a scatterplot of hypothetical data consistent  with the information given.
+
+```{r}
+# set.seed(145)
+set.seed(1450)
+midterm <- rnorm(50, mean = 60, sd = 15)
+pass <- rep(NA, 50)
+class <- data.frame(pass = pass, midterm = midterm)
+# 50% Prob line is 60
+for(i in 1:50){
+  # i = 1
+  set.seed(i)
+  class$pass[i] = rbinom(1, 1, invlogit(-24+0.4*midterm[i]))
+}
+class$pass_jitter <- jitter_binary(class$pass)
+class$pass <- as.factor(class$pass)
+ggplot() + 
+  geom_point(data = class, mapping = aes(x = midterm, y = pass_jitter, color = pass)) + 
+  geom_line(data = data.frame(x = seq(30, 100, 0.01), y = invlogit(-24+0.4*seq(30, 100, 0.01))), mapping = aes(x = x, y = y), color = "darkslateblue", lwd = .8)
+```
+
+## (b)
+Suppose the midterm scores were transformed to have a mean of 0 and standard deviation of 1. What would be the equation of the logistic regression using these transformed scores as a predictor?
+
+let z be the transformed scores, thus z = (x - 60)/15 and x = 15*z + 60; hence the equation is Pr(pass) = invlogit(-24 + 0.4(15z + 60) = invlogit(6z)
+
+## (c)
+Create a new predictor that is pure noise; for example, in R you can create
+newpred <- rnorm(n,0,1).
+Add it to your model. How much does the leave-one-out cross validation score decrease?
+
+```{r}
+# create a new predictor
+class$newpred <- rnorm(50,0,1)
+library(rstanarm)
+# library(caret)
+fit_14.5a <- stan_glm(pass ~ midterm, data = class, family = binomial(link="logit"), refresh = 0)
+fit_14.5b <- stan_glm(pass ~ midterm + newpred, data = class, family = binomial(link="logit"), refresh = 0)
+loo_a <- loo(fit_14.5a)
+loo_b <- loo(fit_14.5b)
+loo_a$elpd_loo
+loo_b$elpd_loo
+```
+the log score increase from -7.848999 to -8.700433
+
+#14.7
+Model building and comparison: Continue with the well-switching data described in the  previous exercise.
+
+## (a)
+Fit a logistic regression for the probability of switching using, as predictors, distance,  log(arsenic), and their interaction. Interpret the estimated coefficients and their standard  errors.
+
+```{r}
+# wells
+wells_14.7 <- data.frame(wells, log_arsenic = log(wells$arsenic))
+wells_14.7$switch_jitter = jitter_binary(wells_14.7$switch)
+fit_14.7a <- glm(switch ~ dist + log_arsenic + dist:log_arsenic, data = wells_14.7, family = binomial)
+summary(fit_14.7a)
+```
+Interpretation: logit(switch) = 0.491 + -.008*dist + .983*log_arsenic + -.002*dist*log_arsenic, when the distance to the nearest convenient well is zero and arsenic level equal to 1, the odds of switching well is .49. when the arsenic level is fixed to 1, every unit increase of distance from nearest convenient well contributes to negative .008 change of switching odds. when the distance is fixed to 0, every unit increase of arsenic level is related to positive change of .98 in switching odds.
+
+## (b)
+Make graphs as in Figure 14.3 to show the relation between probability of switching, distance, and arsenic level.
+
+```{r}
+b <- coef(fit_14.7a)
+seq1 <- seq(min(wells_14.7$dist), max(wells_14.7$dist), 0.01)
+seq2 <- seq(min(wells_14.7$log_arsenic), max(wells_14.7$log_arsenic), 0.01)
+plot_data1 <- data.frame(dist = seq1, switch0 = invlogit(b[1]+ b[2]*seq), switch1 = invlogit(b[1]+ b[2]*seq + b[3]*1 + b[4]*1*seq))
+plot_data2 <- data.frame(log_arsenic = seq2, switch0 = invlogit(b[1] + b[3]*seq2), switch100 = invlogit(b[1] + b[2]*100 + b[3]*seq2 + b[4]*100*seq2))
+
+ggplot() + 
+  geom_point(data = wells_14.7, mapping = aes(x = dist, y = switch_jitter, color = log_arsenic>0.5), size = 0.7) + 
+  geom_line(data = plot_data1, mapping = aes(x = dist, y = switch0), color = "tomato1", lwd = .8) +
+  geom_line(data = plot_data1, mapping = aes(x = dist, y = switch1), color = "turquoise3", lwd = .8) + 
+  ylab("Pr(switching)") + xlab("Distance (in meters) to nearest safe well")
+
+ggplot() + 
+  geom_point(data = wells_14.7, mapping = aes(x = log_arsenic, y = switch_jitter, color = dist>100), size = .6) + 
+  geom_line(data = plot_data2, mapping = aes(x = log_arsenic, y = switch0), color = "tomato1", lwd = .8) +
+  geom_line(data = plot_data2, mapping = aes(x = log_arsenic, y = switch100), color = "turquoise3", lwd = .8) + 
+  ylab("Pr(switching)") + xlab("log(Arsenic) concentration in well water")
+```
+
+
+## (c)
+Following the procedure described in Section 14.4, compute the average predictive differences  corresponding to:  
+i. A comparison of dist = 0 to dist = 100, with arsenic held constant.  
+ii. A comparison of dist = 100 to dist = 200, with arsenic held constant.  
+iii. A comparison of arsenic = 0.5 to arsenic = 1.0, with dist held constant.  
+iv. A comparison of arsenic = 1.0 to arsenic = 2.0, with dist held constant.  
+
+Discuss these results. 
+
+```{r}
+# predictive comparisons
+fit_14c <- stan_glm(switch ~ dist + arsenic, data = wells, family = binomial, refresh = 0)
+print(fit_14c, digits = 2)
+b <- coef(fit_14c)
+dist0 <- 0
+dist100 <- 100
+dist200 <- 200
+ars.5 <- .5
+ars1 <- 1
+ars2 <- 2
+delta_i <- invlogit(b[1] + b[2]*dist100 + b[3]*wells$arsenic) - invlogit(b[1] + b[2]*dist0 + b[3]*wells$arsenic)
+round(mean(delta_i), 2)
+delta_ii <- invlogit(b[1] + b[2]*dist200 + b[3]*wells$arsenic) - invlogit(b[1] + b[2]*dist100 + b[3]*wells$arsenic)
+round(mean(delta_ii), 2)
+delta_iii <- invlogit(b[1] + b[2]*wells$dist + b[3]*ars1) - invlogit(b[1] + b[2]*wells$dist + b[3]*ars.5)
+round(mean(delta_iii), 2)
+delta_iv <- invlogit(b[1] + b[2]*wells$dist + b[3]*ars2) - invlogit(b[1] + b[2]*wells$dist + b[3]*ars1)
+round(mean(delta_iv), 2)
+```
+
+
+# 14.9
+Linear or logistic regression for discrete data: Simulate continuous data from the regression  model, z = a + bx + error. Set the parameters so that the outcomes z are positive about half the  time and negative about half the time.  
+
+## (a) 
+Create a binary variable y that equals 1 if z is positive or 0 if z is negative. Fit a logistic  regression predicting y from x.  
+
+```{r}
+x <- seq(-3, 1, 0.01)
+a <- 1
+b <- 1
+set.seed(149)
+error <- rnorm(length(x), mean = 0, sd = 1)
+z <- a + b*x + error
+plot(density(z))
+data_14.9 <- data.frame(x = x, z = z, y = rep(NA, length(x)))
+data_14.9$y[which(data_14.9$z>0)] = 1
+data_14.9$y[which(data_14.9$z<0)] = 0
+# which(is.na(data_14.9$y))
+fit_logistic <- stan_glm(y ~ x, data = data_14.9, family = binomial, refresh = 0)
+summary(fit_logistic)
+```
+
+
+## (b) 
+Fit a linear regression predicting y from x: you can do this, even though the data y are  discrete.  
+```{r}
+fit_linear <- stan_glm(y ~ x, data = data_14.9, refresh = 0)
+summary(fit_linear)
+```
+
+
+## (c) 
+Estimate the average predictive comparison—the expected difference in y, corresponding to  a unit difference in x—based on the fitted logistic regression in (a). Compare this average  predictive comparison to the linear regression coefficient in (b). 
+
+```{r}
+# average predictive comparison
+# x: -3:1
+b1 <- as.matrix(fit_logistic)
+b2 <- as.matrix(fit_linear)
+# -3 to -2
+delta_logistic1 <- invlogit(b1[,1] + b1[,2]*(-2)) - invlogit(b1[,1] + b1[,2]*(-3))
+round(mean(delta_logistic1), 2)
+# logistic: 10%
+delta_linear1 <- (b2[,1] + b2[,2]*(-2)) - (b2[,1] + b2[,2]*(-3))
+round(mean(delta_linear1), 2)
+# linear: 30%
+
+# -2 to -1
+delta_logistic2 <- invlogit(b1[,1] + b1[,2]*(-1)) - invlogit(b1[,1] + b1[,2]*(-2))
+round(mean(delta_logistic2), 2)
+# logistic: 34%
+delta_linear2 <- (b2[,1] + b2[,2]*(-1)) - (b2[,1] + b2[,2]*(-2))
+round(mean(delta_linear2), 2)
+# linear: 30%
+
+# -1 to -0
+delta_logistic3 <- invlogit(b1[,1]) - invlogit(b1[,1] + b1[,2]*(-1))
+round(mean(delta_logistic3), 2)
+# logistic: 38%
+delta_linear3 <- (b2[,1]) - (b2[,1] + b2[,2]*(-1))
+round(mean(delta_linear3), 2)
+# linear: 30%
+
+# 0 to 1
+delta_logistic4 <- invlogit(b1[,1] + b1[,2]*1) - invlogit(b1[,1])
+round(mean(delta_logistic4), 2)
+# logistic: 13%
+delta_linear4 <- (b2[,1] + b2[,2]*1) - (b2[,1])
+round(mean(delta_linear4), 2)
+# linear: 30%
+```
+Discussion: on the range of x, corresponding to a unit of x, the expected difference of y in logistic model changes from 10% to 38% then decrease to 13%, while the difference in linear model keeps the same.
+
+# 14.10
+Linear or logistic regression for discrete data: In the setup of the previous exercise:  
+
+## (a) 
+Set the parameters of your simulation so that the coefficient estimate in (b) and the average  predictive comparison in (c) are close.  
+
+```{r}
+# z = a + bx + error
+# y that equals 1 if z is positive or 0 if z is negative
+x <- seq(-1, 1, 0.01)
+a <- 0
+b <- .0001
+
+error <- rnorm(length(x), mean = 0, sd = 1)
+z <- a + b*x + error
+plot(density(z))
+data_14.9 <- data.frame(x = x, z = z, y = rep(NA, length(x)))
+data_14.9$y[which(data_14.9$z>0)] = 1
+data_14.9$y[which(data_14.9$z<0)] = 0
+
+fit_logistic <- stan_glm(y ~ x, data = data_14.9, family = binomial, refresh = 0)
+fit_linear <- stan_glm(y ~ x, data = data_14.9, refresh = 0)
+print(fit_logistic, digits = 2)
+print(fit_linear, digits = 2)
+
+plot_logistic <- data.frame(y = invlogit(coef(fit_logistic)[1] + coef(fit_logistic)[2]*seq(-1, 1, .01)), x = seq(-1, 1, .01))
+plot_linear<- data.frame(y = coef(fit_linear)[1] + coef(fit_linear)[2]*seq(-1, 1, .01), x = seq(-1, 1, .01))
+ggplot() + 
+  geom_line(data = plot_logistic, mapping = aes(x = x, y = y), color = "tomato1", lwd = .8) + 
+  geom_line(data = plot_linear, mapping = aes(x = x, y = y), color = "turquoise3", lwd = .8)
+
+b1 <- as.matrix(fit_logistic)
+b2 <- as.matrix(fit_linear)
+delta_1 <- invlogit(b1[, 1]) - invlogit(b1[, 1] + b1[, 2]*(-1))
+round(mean(delta_1), digits = 2)
+# average changing rate of logistic model is 3%
+delta_2 <- b2[, 1] - (b2[, 1] + b2[, 2]*(-1))
+round(mean(delta_2), digits = 2)
+# average changing rate of linear model is 3%
+```
+when the output is dominated by the white noise, the regression result of logistic model and linear model are almost the same.
+
+## (b) 
+Set the parameters of your simulation so that the coefficient estimate in (b) and the average  predictive comparison in (c) are much different.  
+
+```{r}
+x <- seq(-1, 1, 0.01)
+a <- 0
+b <- 100
+
+error <- rnorm(length(x), mean = 0, sd = .0001)
+z <- a + b*x + error
+plot(density(z))
+data_14.9 <- data.frame(x = x, z = z, y = rep(NA, length(x)))
+data_14.9$y[which(data_14.9$z>0)] = 1
+data_14.9$y[which(data_14.9$z<0)] = 0
+
+fit_logistic <- stan_glm(y ~ x, data = data_14.9, family = binomial, refresh = 0)
+fit_linear <- stan_glm(y ~ x, data = data_14.9, refresh = 0)
+print(fit_logistic, digits = 2)
+print(fit_linear, digits = 2)
+
+plot_logistic <- data.frame(y = invlogit(coef(fit_logistic)[1] + coef(fit_logistic)[2]*seq(-1, 1, .01)), x = seq(-1, 1, .01))
+plot_linear<- data.frame(y = coef(fit_linear)[1] + coef(fit_linear)[2]*seq(-1, 1, .01), x = seq(-1, 1, .01))
+ggplot() + 
+  geom_line(data = plot_logistic, mapping = aes(x = x, y = y), color = "tomato1", lwd = .8) + 
+  geom_line(data = plot_linear, mapping = aes(x = x, y = y), color = "turquoise3", lwd = .8)
+
+b1 <- as.matrix(fit_logistic)
+b2 <- as.matrix(fit_linear)
+delta_1 <- invlogit(b1[, 1]) - invlogit(b1[, 1] + b1[, 2]*(-1))
+round(mean(delta_1), digits = 2)
+# average changing rate of logistic model is 48%(x from -1 to 0)
+delta_2 <- b2[, 1] - (b2[, 1] + b2[, 2]*(-1))
+round(mean(delta_2), digits = 2)
+# average changing rate of logistic model is 75%(x from -1 to 0)
+
+delta_1 <- invlogit(b1[, 1] + b1[, 2]*(.5)) - invlogit(b1[, 1] + b1[, 2]*(-.5)) 
+round(mean(delta_1), digits = 2)
+# average changing rate of logistic model is 100%(x from -.5 to .5)
+delta_2 <-  (b2[, 1] + b2[, 2]*(.5)) -(b2[, 1] + b2[, 2]*(-.5))
+round(mean(delta_2), digits = 2)
+# average changing rate of logistic model is 75%(x from -.5 to .5)
+
+delta_1 <- invlogit(b1[, 1] + b1[, 2]*(1)) - invlogit(b1[, 1])
+round(mean(delta_1), digits = 2)
+# average changing rate of logistic model is 52%(x from 0 to 1)
+delta_2 <-  (b2[, 1] + b2[, 2]*(1)) -b2[, 1] 
+round(mean(delta_2), digits = 2)
+# average changing rate of logistic model is 75%(x from 0 to 1)
+
+```
+
+
+## (c) 
+In general, when will it work reasonably well to fit a linear model to predict a binary  outcome?  See also Exercise 13.12. 
+
+According to the previous exercises, when the uncertain part(noises) plays an important part in the prediction and the predictor seems to give no contribution to the output, we could consider fit a linear model to predict a binary outcome.
+
+
+

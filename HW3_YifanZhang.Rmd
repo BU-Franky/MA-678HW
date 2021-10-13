@@ -1,0 +1,606 @@
+---
+title: "Homework 3"
+author: "Yifan Zhang"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load("bayesplot","knitr","arm","ggplot2","rstanarm")
+```
+
+
+## Disclaimer
+
+A few things to keep in mind :
+1) Use set.seed() to make sure that the document produces the same random simulation as when you ran the code.
+2) Use refresh=0 for any stan_glm() or stan-based model. lm() or non-stan models don't need this!
+3) You can type outside of the r chunks and make new r chunks where it's convenient. Make sure it's clear which questions you're answering.
+4) Even if you're not too confident, please try giving an answer to the text responses!
+5) Please don't print data in the document unless the question asks. It's good for you to do it to look at the data, but not as good for someone trying to read the document later on.
+6) Check your document before submitting! Please put your name where "name" is by the author!
+
+## 4.1 Comparison of proportions
+A randomized experiment is performed within a survey. 1000  people are contacted. Half the people contacted are promised a $5 incentive to participate, and  half are not promised an incentive. The result is a 50% response rate among the treated group  and 40% response rate among the control group. Give an estimate and standard error of the average treatment effect. 
+
+```{r}
+# not::run standard error = 
+se_1 = sqrt(0.5*0.5)/sqrt(500)
+se_2 = sqrt(0.4*0.6)/sqrt(500)
+treatment_se = sqrt(se_1^2 + se_2^2)
+
+```
+standard error = sd/sqrt(n)
+response rate = 0.4 + 0.1 * incentive (incentive = 1 / 0)
+thus, the estimate is 0.1, standardd error of the average treatment is 0.031
+
+
+
+## 4.2 Choosing sample size
+You are designing a survey to estimate the gender gap: the difference in  support for a candidate among men and women. Assuming the respondents are a simple random  sample of the voting population, how many people do you need to poll so that the standard error is less than 5 percentage points? 
+
+
+```{r}
+0.5/0.05^2
+```
+set n men and n women, set percentage of men voting for this candidate is p1_hat, and p2_hat for women. statistic here is p1 - p2, p1 ~ N(p1_hat, sqrt(p1_hat(1 - p1_hat)/n)), p2 ~ N(p1_hat, sqrt(p2_hat(1 - p2_hat)/n)), p1 - p2 ~ N(p1_hat - p2_hat, sqrt(p1_hat(1-p1_hat)/n + p2_hat(1-p2_hat)/n). to guarantee sqrt(p1_hat(1-p1_hat)/n + p2_hat(1-p2_hat)/n < 0.05, let p1_hat(1-p1_hat) = p2_hat(1-p2_hat = max{p(1-p)}. thus, (0.25/n + 0.25/n) < 0.05^2, n > 0.5/0.05^2.
+hence, need 200 men and women to estimate the gender difference
+
+## 4.4 Designing an experiment
+You want to gather data to determine which of two students is a  better basketball shooter. You plan to have each student take N shots and then compare their  shooting percentages. Roughly how large does N have to be for you to have a good chance of  distinguishing a 30% shooter from a 40% shooter? 
+
+```{r}
+# library(ggplot2)
+# data simulation
+shooter_30per = rbinom(1000, 1, 0.3)
+shooter_40per = rbinom(1000, 1, 0.4)
+N = 100
+M = 200
+# N: number of the experiment
+# M: number of shoots
+shooter_30per_space = array(NA, c(N,M))
+shooter_40per_space = array(NA, c(N,M))
+# generate the sample space
+for(i in 1:N){
+  # i = 1
+  shooter_30per_space[i,] = shooter_30per[sample(1000, M, replace = FALSE)]
+  shooter_40per_space[i,] = shooter_40per[sample(1000, M, replace = FALSE)]
+}
+# shooter_30per_space
+# shooter_40per_space
+# construction of statistics
+mean_shooter_30per = apply(shooter_30per_space, 1, mean)
+mean_shooter_40per = apply(shooter_40per_space, 1, mean)
+mean_diff = mean_shooter_40per - mean_shooter_30per
+sigma_1 = rep(NA, N)
+sigma_2 = rep(NA, N)
+for (j in 1:N) {
+  sigma_1[j] = sqrt(mean_shooter_30per[j]*(1 - mean_shooter_30per[j]))/sqrt(M)
+  sigma_2[j] = sqrt(mean_shooter_40per[j]*(1 - mean_shooter_40per[j]))/sqrt(M)
+}
+# sigma_1
+# sqrt(0.3*0.7)/sqrt(M)
+
+# notice that under our model, estimate mean value of shooter_30per follow normal distribution N(mean1 , sigma1 = sqrt(mean1*(1 - mean1))/sqrt(M) ), similarly, mean value of shooter_40per follow N(mean2, sigma2 = sqrt(mean2*(1-mean2))/sqrt(M) )
+
+# statistic: mean_shooter_40per - mean_shooter_30per
+# null hypothesis: the shooting rate of this two player are the same
+# criteria:
+# 0 lies out of [(mean2-mean1) - 2*sqrt(sigma1 ^2 + sigma2 ^2), (mean2-mean1) + 2*sqrt(sigma1 ^2 + sigma2 ^2)], reject the null hypothesis
+
+# for real, I can construct a standard normal distribution statistics
+confidence_interval_4.4 = array(NA, c(N, 2))
+for (k in 1:N) {
+  confidence_interval_4.4[k, 1] = mean_diff[k] - 2*sqrt(sigma_1[k]^2 + sigma_2[k]^2)
+  confidence_interval_4.4[k, 2] = mean_diff[k] + 2*sqrt(sigma_1[k]^2 + sigma_2[k]^2)
+  # confidence_interval_4.4[k, 1] = mean_diff[k] - sqrt(sigma_1[k]^2 + sigma_2[k]^2)
+  # confidence_interval_4.4[k, 2] = mean_diff[k] + sqrt(sigma_1[k]^2 + sigma_2[k]^2)
+}
+# confidence_interval_4.4
+# count the number of experiment reject null hypothesis
+count = 0
+for(l in 1:N){
+  if(confidence_interval_4.4[l]>0){
+    count = count + 1
+  }
+}
+cat("with sample size =",M,", the number of rejectionn is", count, "in 100 times")
+```
+“read.me”: when I choose 200 as the batch size, I get a good chance to distinguish a 30% shooter from a 40% one, with the 95% CI.
+
+
+## 4.6 Hypothesis testing
+The following are the proportions of girl births in Vienna for each month in  Girl births 1908 and 1909 (out of an average of 3900 births per month):
+
+```{r}
+birthdata <- c(.4777,.4875,.4859,.4754,.4874,.4864,.4813,.4787,.4895,.4797,.4876,.4859,
+               .4857,.4907,.5010,.4903,.4860,.4911,.4871,.4725,.4822,.4870,.4823,.4973)
+```
+
+The data are in the folder Girls. These proportions were used by von Mises (1957) to support  a claim that that the sex ratios were less variable than would be expected under the binomial  distribution. We think von Mises was mistaken in that he did not account for the possibility that  this discrepancy could arise just by chance.  
+
+### (a) Compute the standard deviation of these proportions and compare to the standard deviation  that would be expected if the sexes of babies were independently decided with a constant  probability over the 24-month period.  
+
+```{r}
+sd_birth = sd(birthdata)
+# standard deviation expected
+# using a binomial model
+estimate_birth = mean(birthdata)
+se_girls = sqrt(estimate_birth*(1 - estimate_birth)/3900)
+# out of an average of 3900 births per month
+```
+the standard deviation is 0.006 and the standard deviation to expect is 0.008
+
+### (b) The observed standard deviation of the 24 proportions will not be identical to its theoretical  expectation. In this case, is this difference small enough to be explained by random variation?  Under the randomness model, the actual variance should have a distribution with expected  value equal to the theoretical variance, and proportional to a chi-square random variable with 23  degrees of freedom; see page 53. 
+
+```{r}
+estimate_birth = mean(birthdata)
+n_birth = length(birthdata)
+var_birth = sd(birthdata)^2
+chi_birth = var_birth*(n_birth-1)/(se_girls^2)
+# chi-birth follows chi-squared distribution wiht 23 degrees of freedom
+# check 
+qchisq(.95, df = 23)
+chi_birth < qchisq(.95, df = 23)
+curve(dchisq(x, df = 23), from = 0, to = 40)
+```
+yes, it is small enough to be explained by random variation. the 95th percentile of the chi-squared distribution is 35.17, and the chi-squared stat of data is 14.75, which mean the probability that reject the hypothesis is under 0.05. 
+
+## 5.5 Distribution of averages and differences
+The heights of men in the United States are approximately  normally distributed with mean 69.1 inches and standard deviation 2.9 inches. The heights of  women are approximately normally distributed with mean 63.7 inches and standard deviation  2.7 inches. Let x be the average height of 100 randomly sampled men, and y be the average  height of 100 randomly sampled women. In R, create 1000 simulations of x - y and plot their  histogram. Using the simulations, compute the mean and standard deviation of the distribution  of x - y and compare to their exact values. 
+
+```{r}
+# height_m ~ N(69.1, 2.9^2)
+# height_f ~ N(63.7, 2.7^2)
+N = 1000
+M = 100
+random_m = matrix( rnorm(N*M,mean = 69.1,sd = 2.9), N, M)
+random_f = matrix( rnorm(N*M,mean = 63.7,sd = 2.7), N, M)
+# dim(random_m)
+x = apply(random_m, 1, mean)
+# sd(x)
+y = apply(random_f, 1, mean)
+# sd(y)
+# sd(x - y)
+# sd(x + y)
+# notice that x ~ N(69.1, 2.9^2/100)
+# y ~ N(63.7, 2.7^2/100)
+diff = x-y
+library(ggplot2)
+ggplot() + 
+  geom_histogram(aes(diff),fill = "skyblue", bins = 20)
+mean_diff = mean(diff)
+sd_diff = sd(diff)
+mean_diff
+sd_diff
+# the theoretical mean_diff = 69.1 - 63.7 = 5.4
+# the theoretical sd_diff = sqrt(2.9^2/100 + 2.7^2/100)
+```
+the computation of mean = 5.390
+the computation of standard deviation = 0.393
+however, the theoretical mean = 5.400, the theoretical sd = 0.396
+
+## 5.6 Propagation of uncertainty: 
+We use a highly idealized setting to illustrate the use of simulations  in combining uncertainties. Suppose a company changes its technology for widget production,  and a study estimates the cost savings at 5 dollars per unit, but with a standard error of 4 dollars. Furthermore,  a forecast estimates the size of the market (that is, the number of widgets that will be sold)  at 40 000, with a standard error of 10 000. Assuming these two sources of uncertainty are  independent, use simulation to estimate the total amount of money saved by the new product  (that is, savings per unit, multiplied by size of the market). 
+
+```{r}
+# cost saving: 5 dollars per unit, satndard error: 4 dollars
+# number sold: 40,000, standard error: 10,000
+N = 100
+M = 100
+costsaving_unit = matrix(rnorm(N*M, mean = 5, sd = 4), N, M)
+number_sold = matrix(rnorm(N*M, mean = 40000, sd = 10000), N, M)
+total_saving = costsaving_unit*number_sold
+mean_saving = apply(total_saving, 2, mean)
+for(i in 1:100){
+  plot(density(total_saving[i,]), lwd = 0.5, col = "gray", add = TRUE, xaxt = 'n', yaxt = 'n', main = "", xlab = "", ylab = "", ylim = c(0, 3.0e-06))
+  par(new=TRUE)
+}
+mean(mean_saving)
+```
+the estimate total mount of money saved by the new product = 200352.1
+PS: the product of two normal distributed variable 
+
+## 5.8 Coverage of confidence intervals: 
+On page 15 there is a discussion of an experimental study of  an education-related intervention in Jamaica, in which the point estimate of the treatment effect,  on the log scale, was 0.35 with a standard error of 0.17. Suppose the true effect is 0.10—this seems more realistic than the point estimate of 0.35—so that the treatment on average would  increase earnings by 0.10 on the log scale. Use simulation to study the statistical properties of  this experiment, assuming the standard error is 0.17.  
+
+### (a) Simulate 1000 independent replications of the experiment assuming that the point estimate is  normally distributed with mean 0.10 and standard deviation 0.17.  
+
+```{r}
+# simulation
+#  based on comparing earnings of only 127 children
+N = 1000
+M = 127
+sims_effect = matrix(rnorm(N*M, mean = 0.10, sd = 0.17), N, M)
+dim(sims_effect)
+# simulate 1000 experiments, each one contain 127 children
+```
+
+### (b) For each replication, compute the 95% confidence interval. Check how many of these intervals  include the true parameter value.  
+
+```{r}
+# se = sd/sqrt(M)
+confidence_interval = array(NA, c(1000,2))
+for(i in 1:1000){
+  # i = 1
+  confidence_interval[i, 1] = mean(sims_effect[i,]) - 2*(sd(sims_effect[i,])/sqrt(M))
+  confidence_interval[i, 2] = mean(sims_effect[i,]) + 2*(sd(sims_effect[i,])/sqrt(M))
+}
+# confidence_interval
+count = 0
+for (i in 1:1000) {
+  if(0.1>confidence_interval[i,1]&0.1<confidence_interval[i,2]){
+    count = count + 1
+  }
+}
+cat("the number of interval contains true value is ", count)
+```
+
+### (c) Compute the average and standard deviation of the 1000 point estimates; these represent the  mean and standard deviation of the sampling distribution of the estimated treatment effect. 
+
+```{r}
+points_estimates = apply(sims_effect, 1, mean)
+# notice that each point follow N(mean = 0.1, sd = 0.17/sqrt(127))
+average = mean(points_estimates)
+standard_deviation = sd(points_estimates)
+average
+standard_deviation
+```
+the theoretical value of average is 0.1000, and theoretical value of standard deviation is 0.17/sqrt(127)) = 0.0150. the actual value of these two are 0.0998 and 0.0152, which are consistent with theoretical ones
+
+
+## 5.9 Coverage of confidence intervals after selection on statistical significance: 
+Take your 1000  simulations from Exercise 5.8, and select just the ones where the estimate is statistically  significantly different from zero. Compute the average and standard deviation of the selected  point estimates. Compare these to the result from Exercise 5.8. 
+
+```{r}
+length(confidence_interval[which(confidence_interval[,1]>0)])
+# ???
+# all estimate are statistically significantly different from zero
+
+```
+
+## 9.8 Simulation for decision analysis: 
+An experiment is performed to measure the efficacy of a  television advertising program. The result is an estimate that each minute spent on a national  advertising program will increase sales by 500,000 dollars, and this estimate has a standard error of  200,000 dollars. Assume the uncertainty in the treatment effect can be approximated by a normal  distribution. Suppose ads cost 300000 dollars per minute. What is the expected net gain for purchasing  20 minutes of ads? What is the probability that the net gain is negative? 
+
+```{r}
+# 1 minute ads-> increase sales by 500,000($), with sd = 200,000($)
+# simulation
+sims_per_increase = rnorm(1000, mean = 500000, sd = 200000)
+# 1 minute ads-> 300,000($) cost
+income_per = sims_per_increase - 300000*rep(1,1000)
+# expected value = (500,000 - 300,000)*20 = 200,000*20 = 4,000,000($)
+# notice that income_per follow normal distribution N(200,000, sigma = 200,000)
+# thus the probability that net gain is negative equal to 16%
+
+
+
+# # mean_income_per ~ N(200,000, sigma = 200000/sqrt(20))
+```
+expected net gain = 4,000,000($)
+negative net gain probability = 32%/2 = 16%
+
+## 10.3 Checking statistical significance: 
+In this exercise and the next, you will simulate two variables  that are statistically independent of each other to see what happens when we run a regression to  predict one from the other. Generate 1000 data points from a normal distribution with mean 0  and standard deviation 1 by typing var1 <- rnorm(1000,0,1) in R. Generate another variable  in the same way (call it var2). Run a regression of one variable on the other. Is the slope  coefficient “statistically significant”? We do not recommend summarizing regressions in this  way, but it can be useful to understand how this works, given that others will do so. 
+
+```{r}
+var1 = rnorm(1000, 0, 1)
+var2 = rnorm(1000, 0, 1)
+# run a linear regression
+ggplot(mapping = aes(x = var1, y = var2)) + 
+  geom_point(color = "skyblue") + 
+  geom_smooth(method = lm, color = "red")
+
+model_10.3 = lm(var1 ~ var2)
+summary(model_10.3)
+# Coefficients:
+#               Estimate Std. Error t value Pr(>|t|)
+# (Intercept) -0.0472770  0.0331037  -1.428    0.154
+# var2         0.0004092  0.0336429   0.012    0.990
+
+# definitely not significant
+```
+slope coefficient is not "statistically significant".
+
+## 10.4 Simulation study of statistical significance: 
+Continuing the previous exercise, run a simulation  repeating this process 100 times. This can be done using a loop. From each simulation, save the  z-score (the estimated coefficient of var1 divided by its standard error). If the absolute value of  the z-score exceeds 2, the estimate is “statistically significant.”  To perform this computation, we start by creating an empty vector of z-scores filled with missing values (NAs). Another approach is to start with z_scores <- numeric(length=100), which  would set up a vector of zeroes. In general, however, we prefer to initialize with NAs, because  then when there is a bug in the code, it sometimes shows up as NAs in the final results, alerting  us to the problem. 
+
+How many of these 100 z-scores exceed 2 in absolute value, thus achieving the conventional  level of statistical significance? 
+
+Here is code to perform the simulation:
+
+This chunk will have eval=FALSE. If you want it to run, please copy it to a new chunk, or remove eval=FALSE!
+
+```{r}
+z_scores <- rep(NA,100)
+for(k in 1:100) {
+  var1 <- rnorm(1000,0,1)
+  var2 <- rnorm(1000,0,1)
+  fake <- data.frame(var1,var2)
+  fit <- stan_glm(var2 ~ var1,data=fake,refresh=0)
+  z_scores[k] <- coef(fit)[2] / se(fit)[2]
+}
+count = 0
+for (i in 1:100) {
+  if(z_scores[i]>2){
+    count = count + 1
+  }
+}
+which(z_scores > 2)
+count
+# there exists one z-score > 2
+```
+
+## 11.3 Coverage of confidence intervals: 
+Consider the following procedure:  
+
+- Set n = 100 and draw n continuous values xi uniformly distributed between 0 and 10. Then  simulate data from the model yi = a + bxi + errori, for i = 1,..., n, with a = 2, b = 3, and  independent errors from a normal distribution.  
+
+- Regress y on x. Look at the median and mad sd of b. Check to see if the interval formed by  the median ± 2 mad sd includes the true value, b = 3.  
+
+- Repeat the above two steps 1000 times.  
+```{r}
+# MAD: meadian absolute deviation
+# error follows normal distribution
+i = 0
+count1 = 0
+while(i<1000){
+  a = 2
+  b = 3
+  x = runif(100, min = 0, max = 10)
+  error = rnorm(100, mean = 0, sd = 5)
+  y = a + b*x + error
+  if(confint(lm(y ~ x))[2,1]<3&3<confint(lm(y ~ x))[2,2]){
+    count1 = count1 + 1
+  }
+  i = i + 1
+}
+count1
+
+# error follows binomial distribution
+j = 0
+count2 = 0
+while(j<1000){
+  a = 2
+  b = 3
+  x = runif(100, min = 0, max = 10)
+  error = rbinom(100, size = 1, prob = 0.5)
+  y = a + b*x + error
+  if(confint(lm(y ~ x))[2,1]<3&3<confint(lm(y ~ x))[2,2]){
+    count2 = count2 + 1
+  }
+  j = j + 1
+}
+count2
+```
+
+### (a) True or false: the interval should contain the true value approximately 950 times. Explain  your answer.  
+True, ...
+
+### (b) Same as above, except the error distribution is bimodal, not normal. True or false: the  interval should contain the true value approximately 950 times. Explain your answer. 
+True, ...
+
+
+
+## Optional:
+## 11.6 Fitting a wrong model: 
+Suppose you have 100 data points that arose from the following model:  y = 3 + 0.1 x1 + 0.5 x2 + error, with independent errors drawn from a t distribution with mean  0, scale 5, and 4 degrees of freedom. We shall explore the implications of fitting a standard  linear regression to these data.  
+
+###(a) Simulate data from this model. For simplicity, suppose the values of x1 are simply the  integers from 1 to 100, and that the values of x2 are random and equally likely to be 0 or  1. In R, you can define x_1 <- 1:100, simulate x_2 using rbinom, then create the linear  predictor, and finally simulate the random errors in y using the rt function. Fit a linear  regression (with normal errors) to these data and see if the 68% confidence intervals for the  regression coefficients (for each, the estimates ±1 standard error) cover the true values.  
+
+```{r}
+x1 = 1:100
+x2 = rbinom(100, 1, 0.5)
+rt_error = rt(100, df = 4, ncp = 5)
+# mean(rt_error)
+# plot(density(rt_error))
+y = 3 + 0.1*x1 + 0.5*x2 + rt_error
+model_11.6 = lm(y ~ x1 + x2)
+# 68% confidence interval for coefficients
+#intercept
+out = summary(model_11.6)
+coef = out$coefficients
+upper_intercept =  coef[1,1] + coef[1,2]
+lower_intercept =  coef[1,1] - coef[1,2]
+8>lower_intercept & 8<upper_intercept
+# x1
+upper_x1 = coef[2,1] + coef[2,2]
+lower_x1 = coef[2,1] - coef[2,2]
+0.1>lower_x1 & 0.1<upper_x1
+# x2
+upper_x2 = coef[3,1] + coef[3,2]
+lower_x2 = coef[3,1] - coef[3,2]
+0.5>lower_x2 & 0.5<upper_x2
+```
+
+### (b) Put the above step in a loop and repeat 1000 times. Calculate the confidence coverage for  the 68% intervals for each of the three coefficients in the model. 
+
+```{r}
+times = 0
+confi_cover = c(NA)
+while(times < 1000){
+  x1 = 1:100
+  x2 = rbinom(100, 1, 0.5)
+  rt_error = rt(100, df = 4, ncp = 5)
+  y = 3 + 0.1*x1 + 0.5*x2 + rt_error
+  model_11.6 = lm(y ~ x1 + x2)
+  out = summary(model_11.6)
+  coef = out$coefficients
+  upper_intercept =  coef[1,1] + coef[1,2]
+  lower_intercept =  coef[1,1] - coef[1,2]
+  upper_x1 = coef[2,1] + coef[2,2]
+  lower_x1 = coef[2,1] - coef[2,2]
+  upper_x2 = coef[3,1] + coef[3,2]
+  lower_x2 = coef[3,1] - coef[3,2]
+  confi_cover = rbind(confi_cover, c(lower_intercept, upper_intercept, lower_x1, upper_x1, lower_x2, upper_x2))
+  times = times + 1
+}
+confi_cover = data.frame(confi_cover[2:1001,]) 
+colnames(confi_cover) = c("lower_intercept", "upper_intercept", "lower_x1", "upper_x1", "lower_x2", "upper_x2")
+rownames(confi_cover) = c()
+confi_cover
+```
+
+## 11.9 Leave-one-out cross validation: 
+Use LOO to compare different models fit to the beauty and  teaching evaluations example from Exercise 10.6:  
+
+```{r}
+beauty = read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/Beauty/data/beauty.csv", header = TRUE)
+sample_n(beauty, 5)
+fit_1 = stan_glm(eval ~ beauty, data = beauty, refresh = 0)
+loo_1 = loo(fit_1)
+fit_2 = stan_glm(eval ~ beauty + female, data = beauty, refresh = 0)
+loo_2 = loo(fit_2)
+loo_compare(loo_1, loo_2)
+#      elpd_diff se_diff
+# fit_2  0.0       0.0   
+# fit_1 -6.5       3.8   
+# notice that elpd_diff between loo_1 and loo_2 is larger than 4 and number of observations is larger than 100, predictor 'female' is a key factor in predicting evalation. 
+fit_3 = stan_glm(eval ~ beauty + female + age + beauty:age, data = beauty, refresh = 0)
+loo_3 = loo(fit_3)
+loo_compare(loo_2, loo_3)
+fit_4 = stan_glm(eval ~ beauty + female + age + beauty:age + nonenglish, data = beauty, refresh = 0)
+loo_4 = loo(fit_4)
+loo_compare(loo_3, loo_4)
+#       elpd_diff se_diff
+# fit_4  0.0       0.0   
+# fit_3 -5.4       3.5   
+fit_5 = stan_glm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age, data = beauty, refresh = 0)
+loo_5 = loo(fit_5)
+loo_compare(loo_4, loo_5)
+#       elpd_diff se_diff
+# fit_5  0.0       0.0   
+# fit_4 -4.6       2.6   
+fit_6 = stan_glm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = beauty, refresh = 0)
+loo_6 = loo(fit_6)
+loo_compare(loo_5, loo_6)
+#       elpd_diff se_diff
+# fit_5  0.0       0.0   
+# fit_6 -2.2       1.3 
+```
+
+###(a) Discuss the LOO results for the different models and what this implies, or should imply, for  model choice in this example.  
+the difference(elpd_diff) between fit_1, fit_2, fit_3, fit_4 and fit_5 are larger than 4 and are negative, which means for this database, we favor fit_5. the difference between fit_6 and fit_5 is smaller than 4, which means they are hard to distinguish from noise. in all, choose model fit_5
+
+### (b) Compare predictive errors pointwise. Are there some data points that have high predictive  errors for all the fitted models? 
+```{r}
+loo_pre1 = loo_predict(fit_1)
+residue1 = data.frame(index = c(1:463), residual = abs(loo_pre1$value - beauty$eval), rank = rank(abs(loo_pre1$value - beauty$eval)))
+arrange(residue1, desc(rank))[1:10, 1]
+# top ten error index
+# 99  30  68 126 144 346 363 287 394 245
+
+loo_pre2 = loo_predict(fit_2)
+residue2 = data.frame(index = c(1:463), residual = abs(loo_pre2$value - beauty$eval), rank = rank(abs(loo_pre2$value - beauty$eval)))
+arrange(residue2, desc(rank))[1:10, 1]
+# top ten error index
+# 99  68  30 144 126 363 287 329  55 234
+
+loo_pre3 = loo_predict(fit_3)
+residue3 = data.frame(index = c(1:463), residual = abs(loo_pre3$value - beauty$eval), rank = rank(abs(loo_pre3$value - beauty$eval)))
+arrange(residue3, desc(rank))[1:10, 1]
+# top ten error index
+# 99  30  68 144 126 234 329 223 287 394
+
+loo_pre4 = loo_predict(fit_4)
+residue4 = data.frame(index = c(1:463), residual = abs(loo_pre4$value - beauty$eval), rank = rank(abs(loo_pre4$value - beauty$eval)))
+arrange(residue4, desc(rank))[1:10, 1]
+# top ten error index
+# 99  30  68 126 234 329 287 223 144 406
+
+loo_pre5 = loo_predict(fit_5)
+residue5 = data.frame(index = c(1:463), residual = abs(loo_pre5$value - beauty$eval), rank = rank(abs(loo_pre5$value - beauty$eval)))
+arrange(residue5, desc(rank))[1:10, 1]
+# top ten error index
+# 99  30  68 126 234 223 287 329 394  55
+
+loo_pre6 = loo_predict(fit_6)
+residue6 = data.frame(index = c(1:463), residual = abs(loo_pre6$value - beauty$eval), rank = rank(abs(loo_pre6$value - beauty$eval)))
+arrange(residue6, desc(rank))[1:10, 1]
+# top ten error index
+# 99  30  68 126 329 223 234 287 394 245
+
+top_10_error = rbind(arrange(residue1, desc(rank))[1:10, 1],arrange(residue2, desc(rank))[1:10, 1],arrange(residue3, desc(rank))[1:10, 1],arrange(residue4, desc(rank))[1:10, 1],arrange(residue5, desc(rank))[1:10, 1],arrange(residue6, desc(rank))[1:10, 1])
+top_10_error
+
+```
+to conclusion, no.99, no.30, no.68, no126 are high predictive error points for all fitted models.
+
+## 11.10 K-fold cross validation: 
+Repeat part (a) of the previous example, but using 5-fold cross  validation:  
+
+###(a) Randomly partition the data into five parts using the sample function in R.
+
+```{r}
+# dataset: beauty
+# 93,93,93,92,92
+rsample = beauty[sample(463, 463, replace = FALSE),]
+rsample
+fold1 = rsample[1:93,]
+fold2 = rsample[94:186,]
+fold3 = rsample[187:279,]
+fold4 = rsample[280:371,]
+fold5 = rsample[372:463,]
+```
+
+### (b) For each part, re-fitting the model excluding that part, then use each fitted model to predict  the outcomes for the left-out part, and compute the sum of squared errors for the prediction.  
+
+```{r}
+# traing_i -> exclude foldi
+traing_1 = rbind(fold2, fold3, fold4, fold5)
+traing_2 = rbind(fold1, fold3, fold4, fold5)
+traing_3 = rbind(fold1, fold1, fold4, fold5)
+traing_4 = rbind(fold1, fold2, fold3, fold5)
+traing_5 = rbind(fold1, fold2, fold3, fold4)
+model_11.10_1 = lm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = traing_1)
+model_11.10_2 = lm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = traing_2)
+model_11.10_3 = lm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = traing_3)
+model_11.10_4 = lm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = traing_4)
+model_11.10_5 = lm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = traing_5)
+# predict for left-out part
+prediction1 = predict.lm(model_11.10_1, newdata = fold1)
+prediction2 = predict.lm(model_11.10_2, newdata = fold2)
+prediction3 = predict.lm(model_11.10_3, newdata = fold3)
+prediction4 = predict.lm(model_11.10_4, newdata = fold4)
+prediction5 = predict.lm(model_11.10_5, newdata = fold5)
+# calculate sum of square errors
+sum1 = sum2 = sum3 = sum4 = sum5 = 0
+for(i in 1:93){
+  sum1 = (prediction1[i] - fold1[i,1])^2 + sum1
+  sum2 = (prediction2[i] - fold2[i,1])^2 + sum2
+  sum3 = (prediction3[i] - fold3[i,1])^2 + sum3
+}
+for(i in 1:92){
+  sum4 = (prediction4[i] - fold4[i,1])^2 + sum4
+  sum5 = (prediction5[i] - fold5[i,1])^2 + sum5
+}
+SUM = data.frame(c(sum1, sum2, sum3, sum4, sum5))
+colnames(SUM) = c("sum of squared error")
+rownames(SUM) = c("sum1","sum2","sum3","sum4","sum5")
+SUM
+apply(SUM, 2, sum)
+```
+
+### (c) For each model, add up the sum of squared errors for the five steps in (b). Compare the  different models based on this fit. 
+
+```{r}
+# eval ~ beauty: sum of squared error equal to 138.3122 
+# eval ~ beauty + female: sum of squared error equal to 134.0648
+# eval ~ beauty + female + age + beauty:age: sum of squared error equal to 131.4223 
+# eval ~ beauty + female + age + beauty:age + nonenglish: sum of squared error equal to 128.7707 
+# eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age: sum of squared error equal to 126.4744 
+# eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id: sum of squared error equal to 130.1298 
+```
+according to the result, the best model in fit_1 to fit_6 is fit_5. this result is consistent with the result of loo_compare(). 
+
+### (d) Not in the textbook, but if you're curious, compare your results to kfold() or cv.glm()! 
+ 
+```{r}
+k_fit1 = kfold(stan_glm(eval ~ beauty, data = beauty, refresh = 0), K = 5)
+k_fit2 = kfold(stan_glm(eval ~ beauty + female, data = beauty, refresh = 0), K = 5)
+k_fit3 = kfold(stan_glm(eval ~ beauty + female + age + beauty:age, data = beauty, refresh = 0), K = 5)
+k_fit4 = kfold(stan_glm(eval ~ beauty + female + age + beauty:age + nonenglish, data = beauty, refresh = 0), K = 5)
+k_fit5 = kfold(stan_glm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age, data = beauty, refresh = 0), K = 5)
+k_fit6 = kfold(stan_glm(eval ~ beauty + female + age + beauty:age + nonenglish + nonenglish:age + minority + lower + course_id, data = beauty, refresh = 0), K = 5)
+loo_compare(k_fit1, k_fit2)
+# k_fit1 better
+```
