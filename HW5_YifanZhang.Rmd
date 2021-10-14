@@ -4,7 +4,7 @@ author: "Yifan Zhang"
 date: "10/2/2020"
 output: 
   pdf_document: 
-    latex_engine: xelatex
+    latex_engine: lualatex
 ---
 
 ```{r setup, include=FALSE}
@@ -207,6 +207,7 @@ Fit a standard logistic or probit regression and assess model fit.
 congress_88 <- data.frame(vote=as.numeric(congress$v88_adj>.5),pastvote=congress$v86_adj,inc=congress$inc88)
 fit_logistic <- glm(vote ~ pastvote + inc, family = binomial(link = "logit"), data = congress_88)
 print(fit_logistic, digits = 3)
+plot(fit_logistic)
 b <- coef(fit_logistic)
 # jitter the points
 jitter_binary <- function(a, jitt=0.05){
@@ -234,6 +235,7 @@ Fit a robit regression and assess model fit.
 ```{r}
 fit_gosset <- glm(vote ~ pastvote + inc, family = binomial(link = gosset(2)), data = congress_88)
 print(fit_gosset)
+plot(fit_gosset)
 error_rate_gosset <- 1 - sum(as.numeric(as.numeric(predict(fit_gosset, type = "response") > .5) == congress_88$vote))/congress_n
 # compare correct rate
 error_rate_gosset < error_rate_logistic
@@ -355,7 +357,7 @@ lalonde_2 <- lalonde[which(lalonde$re78 > 0), ]
 fit15_b <- glm(re78 ~ treat + educ_cat4 + sample + age + educ + black + hisp + married + nodegree, data = lalonde_2)
 print(fit15_b)
 ```
-
+ AIC of the first model is obviously smaller than the second one, thus the logistic model is much better!
 
 
 
