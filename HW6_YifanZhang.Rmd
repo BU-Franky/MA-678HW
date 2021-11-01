@@ -1,0 +1,522 @@
+---
+title: "MA678 homework 06"
+subtitle: "Multinomial Regression"
+author: "Yifan Zhang"
+date: "September 2, 2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,out.width="0.9\\linewidth",dev="pdf",fig.align  = 'center')
+pacman::p_load(
+  "ggplot2",
+  "knitr",
+  "arm",
+  "data.table",
+  "foreign",
+  "car",
+  "faraway",
+  "nnet",
+  "reshape2",
+  "VGAM", 
+  "tidyverse",
+  "dplyr",
+  "rstanarm"
+)
+```
+
+## Multinomial logit: 
+Using the individual-level survey data from the 2000 National Election Study (data in folder NES), predict party identification (which is on a five-point scale) using ideology and demographics with an ordered multinomial logit model.
+```{r, echo=FALSE}
+nes2000 <- nes %>% filter(year == 2000) %>% select("partyid3", "race", "age", "ideo")
+# pre-processing
+nes2000 <- nes2000[-which(is.na(nes2000$ideo)), ]
+which(is.na(nes2000$partyid3))
+nes2000 <- nes2000[-which(is.na(nes2000$partyid3)), ]
+# which(is.na(nes2000$ideo))
+# which(is.na(nes2000$age))
+# which(is.na(nes2000$race))
+
+plot_data <- nes2000
+plot_data$ideo     <- as.factor(plot_data$ideo)
+plot_data$partyid3 <- as.factor(plot_data$partyid3)
+plot_data$race     <- as.factor(plot_data$race)
+ggplot(data = plot_data, mapping = aes(x =ideo, y = age)) +
+  geom_boxplot(size = .75) +
+  geom_jitter(alpha = .5, size = .4) + 
+  facet_grid(race ~partyid3, margins = TRUE)
+
+library(rstanarm)
+nes2000_polr <- polr(factor(partyid3) ~ race + age + ideo, data = nes2000)
+summary(nes2000_polr)
+round(summary(nes2000_polr)$coef,3)
+# melt_nes2000 %>% count(race)
+# # race = 1, 2, 3, 4, 5
+# melt_nes2000 %>% count(age)
+# # age = 18:90
+# melt_nes2000 %>% count(ideo)
+# # ideo = 1, 3, 5
+# melt_nes2000 %>% count(partyid3)
+# # partyid3 = 1, 2, 3, 9
+```
+1. Summarize the parameter estimates numerically and also graphically. 
+
+$$logit(Pr(party>1))=log(\frac{\pi_2+\pi_3+\pi_9}{\pi_1})=-1.616-0.202\times race-0.005\times age+0.578\times ideo$$
+$$logit(Pr(party>2))=log(\frac{\pi_3+\pi_9}{\pi_1+\pi_2})=-1.892-0.202\times race-0.005\times age+0.578\times ideo$$
+$$logit(Pr(party>3))=log(\frac{\pi_9}{\pi_1+\pi_2+\pi_3})=-7.548-0.202\times race-0.005\times age+0.578\times ideo$$
+```{r}
+nes2000_age <- nes2000 %>%group_by(age) %>% summarise(count = length(age))
+age_index <- nes2000_age$age
+predx <- expand.grid(ideo=c(1,3,5),race=c(1, 2, 3, 4, 5), age=age_index)
+nes2000_pred <- predict(nes2000_polr, newdata = predx, type = "p")
+melt_nes2000 <- melt(cbind(predx, nes2000_pred), id.vars = c("ideo", "race", "age"), variable.name = "partyid3", value.name = "prob")
+# not runn:: partyid3_9 <- melt_nes2000 %>% filter(partyid3 == 9)
+# not runn:: mean(partyid3_9$prob)
+# not runn:: melt_nes2000 %>% count(partyid3)
+melt_nes2000$ideo <- as.factor(melt_nes2000$ideo)
+melt_nes2000$race <- as.factor(melt_nes2000$race)
+# group the age 
+melt_nes2000$age <- ifelse((melt_nes2000$age>10&melt_nes2000$age<31), "10-30",
+       ifelse((melt_nes2000$age>31&melt_nes2000$age<51), "30-50", 
+       ifelse((melt_nes2000$age>51&melt_nes2000$age<71), "50-70", "70-90")))
+# melt_nes2000 %>% filter(age == "10-30", race == 1, ideo == 1)
+plot_nes2000 <- melt_nes2000 %>% group_by(age, ideo, race, partyid3) %>% summarise(mean = mean(prob))
+ggplot(data = plot_nes2000) + 
+  geom_bar(stat = "identity") + aes(x = race, y = mean, fill = partyid3) + 
+  facet_grid(age~ideo)
+# ggplot(data = melt_nes2000) + 
+#   geom_bar(stat = "identity") + aes(x = race, y = prob, fill = partyid3) + 
+#   facet_grid(~ideo)
+```
+
+2. Explain the results from the fitted model.
+
+explanation: every unit increase of race and age is related to .202 and .005 decrease of log odds for partyid3 while every unit increase of ideology contribute to .578 positive change of log odds for partyid3. 
+
+
+3. Use a binned residual plot to assess the fit of the model.
+```{r}
+pred <- data.frame(predict(nes2000_polr, newdata = nes2000, type = "p"))
+raw <- dcast(data.frame(index = c(1: dim(nes2000)[1]), nes2000), index ~ partyid3, value.var = "partyid3")
+raw$`1` <- ifelse((is.na(raw$`1`)), 0, 1)
+raw$`2` <- ifelse((is.na(raw$`2`)), 0, 1)
+raw$`3` <- ifelse((is.na(raw$`3`)), 0, 1)
+raw$`9` <- ifelse((is.na(raw$`9`)), 0, 1)
+resid_nes2000 <- raw[, 2:5] - pred
+par(mfrow = c(2, 2))
+for (i in 1:4) {
+  binnedplot(pred[, i], resid_nes2000[, i])
+}
+```
+
+
+
+## (Optional) Choice models: 
+
+Using the individual-level survey data from the election example described in Section 10.9 (data available in the folder NES), 
+
+```{r, echo=FALSE}
+nes
+```
+
+
+1. fit a logistic regression model for the choice of supporting Democrats or Republicans. Then interpret the output from this regression in terms of a utility/choice mode.
+
+```{r}
+distinct(nes, presvote)
+
+
+```
+
+2. Repeat the previous exercise but now with three options: Democrat, no opinion, Republican. That is, fit an ordered logit model and then express it as a utility/choice mode
+
+```{r}
+
+
+```
+
+
+## Contingency table and ordered logit model
+
+In a prospective study of a new living attenuated recombinant vaccine for influenza, patients were randomly allocated to two groups, one of which was given the new vaccine and the other a saline placebo. The responses were titre levels of hemagglutinin inhibiting antibody found in the blood six weeks after vaccination; they were categorized as "small", "medium" or "large". 
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrr}
+  \hline
+treatment & small & moderate & large & Total \\ 
+  \hline
+placebo &  25 &   8 &   5 & 38 \\ 
+ vaccine &   6 &  18 &  11 & 35 \\ 
+   \hline
+\end{tabular}
+\end{table}
+The cell frequencies in the rows of table are constrained to add to the number of subjects in each treatment group (35 and 38 respectively). We want to know if the pattern of responses is the same for each treatment group.
+
+```{r,echo=FALSE}
+cell_freq <- data.frame(treatment = factor(c("placebo", "vaccine")), 
+                        small = as.integer(c(25, 6)), 
+                        moderate = as.integer(c(8, 18)), 
+                        large = as.integer(c(5, 11)))
+
+```
+
+1. Using a chisqure test and an appropriate log-linear model, test the hypothesis that the distribution of responses is the same for the placebo and vaccine groups.
+```{r}
+# null hypothesis
+chi_test <- chisq.test(cell_freq[, 2:4])
+fit_cell <- vglm(cbind(small, moderate, large) ~ treatment, family = multinomial, data = cell_freq)
+# predict(fit_cell, data.frame(treatment = c("placebo")), type = "response")
+```
+
+2. For the model corresponding to the hypothesis of homogeniety of response distributions, calculate the fitted values, the Pearson and deviance residuals, and the goodness of fit statistics $X^2$ and $D$. Which of the cells of the table contribute most to $X^2$ and $D$? Explain and interpret these results.
+
+```{r}
+# fitted value
+round(coef(fit_cell), 2)
+cor(cell_freq[, 2:4], method = "pearson")
+residuals(fit_cell, type = "response")
+```
+
+
+3. Re-analyze these data using ordered logit model (use `polr`) to estiamte the cut-points of a latent continuous response varaible and to estimate a location shift between the two treatment groups.  Sketch a rough diagram to illustrate the model which forms the conceptual base for this analysis.
+```{r}
+cell_p <- rbind(data.frame(treatment = rep("placebo", 3), 
+                           response = c("small", "moderate", "large"), 
+                           Freq = c(25, 8, 5)), 
+                data.frame(treatment = rep("vaccine", 3), 
+                           response = c("small", "moderate", "large"), 
+                           Freq = c(6, 18, 11)
+                ))
+cell_p$response <- factor(cell_p$response, 
+                          levels = c("small", "moderate", "large"), 
+                          ordered = TRUE)
+fit_cell_polr <- polr(response ~  treatment, weights = Freq, data = cell_p)
+round(summary(fit_cell_polr)$coef, 2)
+predict(fit_cell_polr, newdata = data.frame(treatment = c("placebo", "vaccine")), type = "probs")
+cell_gen <- data.frame(x = seq(-5, 5, by = .01), 
+                       cut_samll_moderate = invlogit(-.57+1.84*seq(-5, 5, by = .01)), 
+                      cut_moderate_larger = invlogit(-2.44+1.84*seq(-5, 5, by = .01)))
+cell_gen <- cell_gen %>% melt(id.vars = "x" )
+ggplot(cell_gen) + 
+  geom_line(aes(x = x, y = value, color = variable))
+```
+$$log(\frac{Pr(response>small)}{1-Pr(response>small)}) = -.57 + 1.84x_{treatment-vaccine} $$
+$$log(\frac{Pr(response>moderate)}{1-Pr(response>moderate)}) = -2.44 + 1.84x_{treatment-vaccine} $$
+
+# High School and Beyond 
+The hsb data was collected as a subset of the High School and Beyond study conducted by the National Education Longitudinal Studies program of the National Center for Education Statistics. 
+The variables are gender; race; socioeconomic status; school type; chosen high school program type; scores on reading, writing, math, science, and social studies. 
+We want to determine which factors are related to the choice of the type of program—academic, vocational, or general—that the students pursue in high school. The response is multinomial with three levels.
+
+```{r}
+data(hsb)
+?hsb
+# id
+# ID of student
+# 
+# gender
+# a factor with levels female male
+# 
+# race
+# a factor with levels african-amer asian hispanic white
+# 
+# ses
+# socioeconomic class - a factor with levels high low middle
+# 
+# schtyp
+# school type - a factor with levels private public
+# 
+# prog
+# choice of high school program - a factor with levels academic general vocation
+# 
+# read
+# reading score
+# 
+# write
+# writing score
+# 
+# math
+# math score
+# 
+# science
+# science score
+# 
+# socst
+# social science score
+```
+
+1. Fit a trinomial response model with the other relevant variables as predictors (untransformed).
+```{r}
+hsb_1 <- hsb %>% mutate(general = ifelse(hsb$prog == "general", 1, 0)) %>% relocate(general, .after = prog)
+hsb_1 %<>% mutate(academic = ifelse(hsb$prog == "academic", 1, 0)) %>% relocate(academic, .after = prog)
+hsb_1 %<>% mutate(vocation = ifelse(hsb$prog == "vocation", 1, 0)) %>% relocate(vocation, .after = academic)
+# model fit
+hsb_fit <- vglm(cbind(academic, vocation, general) ~ gender + race + ses + schtyp + read + write + math + science + socst, family = multinomial, data = hsb_1)
+summary(hsb_fit)
+AIC(hsb_fit)
+```
+
+2. For the student with id 99, compute the predicted probabilities of the three possible choices.
+
+```{r}
+predict(hsb_fit, newdata = subset(hsb, id == 99), type = "response")
+```
+
+
+# Happiness
+Data were collected from 39 students in a University of Chicago MBA class and may be found in the dataset `happy`.
+```{r}
+library(faraway)
+data(happy)
+?happy
+# Happiness on a 10 point scale where 10 is most happy
+# 
+# money
+# family income in thousands of dollars
+# 
+# sex
+# 1 = satisfactory sexual activity, 0 = not
+# 
+# love
+# 1 = lonely, 2 = secure relationships, 3 = deep feeling of belonging and caring
+# 
+# work
+# 5 point scale where 1 = no job, 3 = OK job, 5 = great job
+```
+
+1. Build a model for the level of happiness as a function of the other variables.
+```{r}
+library(fastDummies)
+fit_happy <- polr(factor(happy) ~ money + sex + love + work, data = happy)
+summary(fit_happy)$coef
+```
+
+2. Interpret the parameters of your chosen model.
+
+3. Predict the happiness distribution for subject whose parents earn $30,000 a year,
+who is lonely, not sexually active and has no job.
+```{r}
+predict(fit_happy, newdata = data.frame(money = 30, love = 0, sex = 0, work = 0), type = "probs")
+predict(fit_happy, newdata = data.frame(money = 30, love = 0, sex = 0, work = 0), type = "class")
+```
+
+# newspaper survey on Vietnam War
+A student newspaper conducted a survey of student opinions about the Vietnam War in May 1967. Responses were classified by sex, year in the program and one of four opinions. The survey was voluntary. The data may be found in the dataset `uncviet`.  Treat the opinion as the response and the sex and year as predictors. Build a proportional odds model, giving an interpretation to the estimates.
+
+```{r}
+data(uncviet)
+?uncviet
+# y
+# the count
+# 
+# policy
+# a factor with levels A (defeat power of North Vietnam by widespread bombing and land invasion) B (follow the present policy) C (withdraw troops to strong points and open negotiations on elections involving the Viet Cong) D (immediate withdrawal of all U.S. troops)
+# 
+# sex
+# a factor with levels Female Male
+# 
+# year
+# a factor with levels Fresh Grad Junior Senior Soph
+
+# uncviet_d <- uncviet %>% mutate(A = ifelse(uncviet$policy == "A", uncviet$y, 0), B = ifelse(uncviet$policy == "B", uncviet$y, 0), C = ifelse(uncviet$policy == "C", uncviet$y, 0), D = ifelse(uncviet$policy == "D", uncviet$y, 0))
+
+uncviet_d <- uncviet %>% mutate(sex_year = paste(uncviet$sex, uncviet$year))
+uncviet_d <- dcast(uncviet_d, sex_year ~ policy, value.var = "y") %>% separate(col = sex_year, into = c("sex", "year"),
+                                                                               sep = " ", fill = "right")
+uncviet_fit <- vglm(cbind(A, B, C, D) ~ sex + year, family = multinomial, data = uncviet_d)
+summary(uncviet_fit)
+```
+interpretation: 
+$$logit(\frac{ \hat{\pi_{iA}} } { \hat{\pi_{iD}} }) = 1.78914 + 0.39366x_{i}^{male} -2.25855x_{i}^{Grad} -0.63363x_{i}^{Junior} -1.07484x_{i}^{Senior} -0.23077x_{i}^{Soph}$$
+$$logit(\frac{ \hat{\pi_{iB}} } { \hat{\pi_{iD}} }) = 1.92373 -0.12432 x_{i}^{male} -1.53945 x_{i}^{Grad} -0.37704 x_{i}^{Junior} -1.05090x_{i}^{Senior} -0.08184x_{i}^{Soph}$$
+$$logit(\frac{ \hat{\pi_{iB}} } { \hat{\pi_{iD}} }) = 2.84442 -0.96115 x_{i}^{male} -0.94378 x_{i}^{Grad} -0.14346 x_{i}^{Junior} -0.55978x_{i}^{Senior} -0.04920x_{i}^{Soph}$$
+
+
+# pneumonoconiosis of coal miners
+The pneumo data gives the number of coal miners classified by radiological examination into one of three categories of pneumonoconiosis and by the number of years spent working at the coal face divided into eight categories.
+
+```{r}
+library(faraway)
+data(pneumo,package="faraway")
+?pneumo
+# Freq
+# number of miners
+# 
+# status
+# pneumoconiosis status - a factor with levels mild normal severe
+# 
+# year
+# number of years service (midpoint of interval)
+```
+
+1. Treating the pneumonoconiosis status as response variable as nominal, build a model for predicting the frequency of the three outcomes in terms of length of service and use it to predict the outcome for a miner with 25 years of service.
+
+```{r}
+# treated as multinominal
+# pneumo_d <- dcast(pneumo, year ~ status, value.var = "Freq")
+# 
+# data.frame(status = rep(pneumo$status, pneumo$Freq), 
+#            year = rep(pneumo$year, pneumo$Freq))
+# 
+# pneumo_fit1 <- vglm(cbind(mild, normal, severe) ~ year, family = multinomial, data = pneumo_d)
+pneumo
+pneumo_fit1 <- multinom(status ~ year, weights = Freq, data = pneumo)
+predict(pneumo_fit1, newdata = data.frame(year = 25), type = "probs")
+```
+pneumonoconiosis status of this 12 years miner has 82.8% prob to be normal, 9.1% prob to be mild and 8.1% to be severe. 
+
+2. Repeat the analysis with the pneumonoconiosis status being treated as ordinal. 
+
+```{r}
+# treated as ordinal
+pneumo_ordinal <- pneumo 
+pneumo_ordinal$status <- factor(pneumo$status, 
+                                level = c("normal", "mild", "severe"), 
+                                ordered = TRUE)
+pneumo_fit2 <- polr(status ~ year, weights = Freq, data = pneumo_ordinal)
+round(summary(pneumo_fit2)$coef, 2)
+predict(pneumo_fit2, newdata = data.frame(year = 25), type = "probs")
+```
+$$log(\frac{\hat{\pi}_{mild} + \hat{\pi}_{severe}}{\hat{\pi}_{normal}}) = -3.96 + 0.10x_{year}$$
+
+$$log(\frac{\hat{\pi}_{severe}}{\hat{\pi}_{normal} + \hat{\pi}_{mild}}) = -4.87 + 0.10x_{year}$$
+pneumonoconiosis status of this 12 years miner has 82.6% prob to be normal, 9.6% prob to be mild and 7.8% to be severe. 
+
+
+3.Now treat the response variable as hierarchical with top level indicating whether
+the miner has the disease and the second level indicating, given they have the
+disease, whether they have a moderate or severe case. 
+
+```{r}
+pneumo_h <- pneumo %>% mutate(judg1 = ifelse(pneumo$status == "normal", 0, 1),  # judg1: if the miner has disease
+                              judg2 = ifelse(pneumo$status == "mild", 0,        # judg2: if 'yes', mild of severe
+                                             ifelse(pneumo$status == "severe", 1, NA)))
+pneumo_fit3.1 <- glm(judg1 ~ year, family = binomial(link = "logit"), weights = Freq, data = pneumo_h)
+pneumo_fit3.2 <- glm(judg2 ~ year, family = binomial(link = "logit"), weights = Freq, 
+                  data = subset(pneumo_h, judg1 == 1))
+round(coef(pneumo_fit3.1), 2)
+round(coef(pneumo_fit3.2), 2)
+p_disease <- predict(pneumo_fit3.1, newdata = data.frame(year = 25), type = "response")
+p_severe  <- predict(pneumo_fit3.2, newdata = data.frame(year = 25), type = "response")
+# Pr(normal) = 1 - p_disease = 82.6%
+# Pr(mild)   = p_disease * (1 - p_severe) = 9.7%
+# Pr(severe) = p_disease * p_severe = 7.7%
+```
+$$ logit(Pr(judg1 = 1)) =  -3.97+0.10x_{year}$$
+$$ logit(Pr(judg2 = 1)|judg1=1) = -1.11 + 0.04x_{year}$$
+
+4.  Compare the three analyses.
+
+```{r}
+# AIC comparsion
+AIC(pneumo_fit1) # multinomial regression
+AIC(pneumo_fit2) # ordinal regression
+AIC(pneumo_fit3.1) + AIC(pneumo_fit3.2) -1 # multilevel regression
+
+# ROC_AUC comparision
+
+```
+the AIC of multinomial model(AIC = 67.08) is far lower than the other ones(Ordinal = 422.92, Multilevel = 424.81)
+
+
+# (optional) Multinomial choice models: 
+
+Pardoe and Simonton (2006) fit a discrete choice model to predict winners of the Academy Awards. Their data are in the folder AcademyAwards.
+
+name  | description
+------|----------------------------------------
+No    | unique nominee identifier
+Year  | movie release year (not ceremony year)
+Comp  | identifier for year/category
+Name  | short nominee name
+PP    | best picture indicator
+DD    | best director indicator
+MM    | lead actor indicator
+FF    | lead actress indicator
+Ch    | 1 if win, 2 if lose
+Movie | short movie name
+Nom   | total oscar nominations
+Pic   | picture nom
+Dir   | director nom
+Aml   | actor male lead nom
+Afl   | actor female lead nom
+Ams   | actor male supporting nom
+Afs   | actor female supporting nom
+Scr   | screenplay nom
+Cin   | cinematography nom
+Art   | art direction nom
+Cos   | costume nom
+Sco   | score nom
+Son   | song nom
+Edi   | editing nom
+Sou   | sound mixing nom
+For   | foreign nom
+Anf   | animated feature nom
+Eff   | sound editing/visual effects nom
+Mak   | makeup nom
+Dan   | dance nom
+AD    | assistant director nom
+PrNl  | previous lead actor nominations
+PrWl  | previous lead actor wins
+PrNs  | previous supporting actor nominations
+PrWs  | previous supporting actor wins
+PrN   | total previous actor/director nominations
+PrW   | total previous actor/director wins
+Gdr   | golden globe drama win
+Gmc   | golden globe musical/comedy win
+Gd    | golden globe director win
+Gm1   | golden globe male lead actor drama win
+Gm2   | golden globe male lead actor musical/comedy win
+Gf1   | golden globe female lead actor drama win
+Gf2   | golden globe female lead actor musical/comedy win
+PGA   | producer's guild of america win
+DGA   | director's guild of america win
+SAM   | screen actor's guild male win
+SAF   | screen actor's guild female win
+PN    | PP*Nom
+PD    | PP*Dir
+DN    | DD*Nom
+DP    | DD*Pic
+DPrN  | DD*PrN
+DPrW  | DD*PrW
+MN    | MM*Nom
+MP    | MM*Pic
+MPrN  | MM*PrNl
+MPrW  | MM*PrWl
+FN    | FF*Nom
+FP    | FF*Pic
+FPrN  | FF*PrNl
+FPrW  | FF*PrWl
+
+```{r, echo=FALSE}
+oscars <- read.csv("https://raw.githubusercontent.com/avehtari/ROS-Examples/master/AcademyAwards/oscars.csv", header = TRUE)
+summary(oscars)
+```
+
+1. Fit your own model to these data.
+
+```{r}
+oscars$Ch <- factor(oscars$Ch, 
+                    levels = c(0, 1, 2), 
+                    ordered = TRUE)
+oscars_fit <- stan_polr(Ch ~ PP + DD + MM + FF, data = oscars, method = "probit")
+polr(Ch ~ PP + DD + MM + FF, data = oscars)
+```
+
+2. Display the fitted model on a plot that also shows the data.
+
+```{r}
+
+
+```
+
+3. Make a plot displaying the uncertainty in inferences from the fitted model.
+
+```{r}
+
+
+
+```
