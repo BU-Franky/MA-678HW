@@ -380,6 +380,7 @@ dating_no_pool_list <- vector("list",length(uiid))
 #                        subset = subset(dating, iid==uiid[i]),
 #                        family=binomial))$coefficients
 # }
+# turn to use multilevel model! 
 dating_partial_pooled_1 <- glmer(match ~ attr_o  + shar_o + (1 + attr_o  + shar_o|iid), data = dating, family = binomial)
 fixef(dating_partial_pooled_1)
 ranef(dating_partial_pooled_1)$iid
