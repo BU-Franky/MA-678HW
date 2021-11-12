@@ -24,7 +24,9 @@ zoo,
 dplyr, 
 tidyverse, 
 magrittr, 
-reshape2
+reshape2,
+stringr, 
+merTools
 )
 ```
 
@@ -86,17 +88,20 @@ ggplot(data.cd4, aes(x = time, y = y, group = factor(newpid), color = factor(new
 3. Set up a model for the children's slopes and intercepts as a function of the treatment and age at baseline. Estimate this model using the two-step procedure–first estimate the intercept and slope separately for each child, then fit the between-child models using the point estimates from the first step.
 ```{r}
 # first estimate the intercept and slope separately for each child
-no.pooled.fit <- data.cd4 %>% 
-  group_by(newpid) %>% mutate(intercept = coef(lm(CD4PCT ~ treatment + age.baseline))[1], 
-                                         slope = coef(lm(CD4PCT ~ treatment + age.baseline))[2]) %>% 
-  dplyr::select(newpid, intercept, slope) %>% group_by(newpid) %>% 
-  summarise(intercept = mean(intercept), slope = mean(slope)) 
-no.pooled.fit[is.na(no.pooled.fit)] <- 0
-
-# fit the between-child models using the point estimates from the first step
-lm(CD4PCT ~ treatment + age.baseline, data = subset(data.cd4, newpid == 1))
-
-
+uid <- unique(data.cd4$newpid)
+regression.matrix <- data.frame(intercept = NA, slope = NA)
+for(i in 1: length(uid)){
+  regression.matrix[i, ] <- coef(lm(y ~ time, data = subset(data.cd4, newpid == uid[i])))
+}
+regression.matrix[is.na(regression.matrix)] <- 0
+regression.matrix <- data.frame(newpid = uid, regression.matrix); rownames(regression.matrix) <- c()
+# fit the between-child models
+u.data.cd4 <- unique(data.cd4 %>% dplyr::select(newpid, treatment, age.baseline))
+regression.matrix <- left_join(regression.matrix, u.data.cd4, by = "newpid")
+fit_intercept <- lm(intercept ~ factor(treatment) + age.baseline, data = regression.matrix)
+fit.slope     <- lm(slope     ~ factor(treatment) + age.baseline, data = regression.matrix)
+summary(fit_intercept)
+summary(fit.slope)
 ```
 
 
@@ -147,118 +152,48 @@ plotREsim(REsim(lmer.fit.2))
 7. Use the model fit from (5) to generate simulation of predicted CD4 percentages for each child in the dataset at a hypothetical next time point.
 
 ```{r}
-sim.num <- 100
-lmer.fit.2.sim <- sim(lmer.fit.2, sim.num)
-fixed.intercept <- coef(lmer.fit.2.sim)$fixef[, 1]
-random.effect <- 	ranef(lmer.fit.2)$newpid
-# generate the simulation intercept
-sim.intercept <- matrix(, nrow = dim(random.effect)[1], ncol = length(fixed.intercept))
-for(row in 1: dim(sim.intercept)[1]){
-  for(col in 1: dim(sim.intercept)[2]){
-    sim.intercept[row, col] <- random.effect[row, 1] + fixed.intercept[col]
-  }
-}
-sim.intercept <- data.frame(sim.intercept) 
-colnames(sim.intercept) <- c(1: sim.num)
-rownames(sim.intercept) <- unique(data.cd4$newpid)
-sim.time         <- coef(lmer.fit.2.sim)$fixef[, 2]
-sim.treatment    <- coef(lmer.fit.2.sim)$fixef[, 3]
-sim.age.baseline <- coef(lmer.fit.2.sim)$fixef[, 4]
-# generate the simulation prediction
-hypothetical.time = 1
-sim.cd4 <- data.cd4 %>% group_by(newpid) %>% 
-  summarise(treatment = mean(treatment), age.baseline = mean(age.baseline)) # the treatments and age.baselines are same for each child, so it doesn't matter to use mean 
-sim.prediciton <-  matrix(, nrow = dim(random.effect)[1], ncol = length(fixed.intercept))
-for(row in 1: dim(sim.intercept)[1]){
-  for(col in 1: dim(sim.intercept)[2]){
-    sim.prediciton[row, col] <- sim.intercept[row, col] + 
-      hypothetical.time*sim.time[col] + 
-      sim.cd4$treatment[col]*sim.treatment[col] + 
-      sim.cd4$age.baseline[col]*sim.age.baseline[col]
-  }
-}
-sim.prediciton <- data.frame(newpid = unique(data.cd4$newpid), sim.prediciton)
-colnames(sim.prediciton)[c(2:(1+sim.num))] <- c(1:sim.num)
-sim.prediciton
+stan_lmer.fit.2 <- stan_lmer(CD4PCT ~ time + factor(treatment) + age.baseline + (1|newpid), data = data.cd4)
+# select hypothetical equal to 1
+data.cd4.hypo <- data.cd4 %>% mutate(hypo.time = 1) %>% dplyr::select(newpid, CD4PCT, hypo.time, treatment, age.baseline)
+colnames(data.cd4.hypo)[3] <- c("time")
+sim.data.cd4.hypo <- posterior_predict(stan_lmer.fit.2, newdata = data.cd4.hypo, draws = 1000)
+pp_check(stan_lmer.fit.2)
 ```
 
 8. Use the same model fit to generate simulations of CD4 percentages at each of the time periods for a new child who was 4 years old at baseline.
 
 ```{r}
 sim.data.4 <- data.cd4 %>% 
-  mutate(agebase4 = 4, agemeasure = 4 + time) %>% 
-  dplyr::select(newpid, treatment, CD4PCT, time, agebase4, agemeasure)
-sim.intercept <- sim.intercept %>% mutate(newpid = unique(data.cd4$newpid))
-cd4.sim.intercept <- inner_join(data.cd4, sim.intercept, by = "newpid") %>% dplyr::select(8:107) %>% data.frame()
-# sim.time
-# sim.treatment
-# sim.age.baseline
-sim.4.prediction <- matrix(, nrow = dim(sim.data.4)[1], ncol = length(sim.time))
-for(row in 1: dim(sim.4.prediction)[1]){
-  for(col in 1: dim(sim.4.prediction)[2]){
-    sim.4.prediction[row, col] <- cd4.sim.intercept[row, col] + 
-      sim.data.4$time[row] * sim.time[col] + 
-      sim.data.4$treatment[row] * sim.treatment[col] + 
-      sim.data.4$agebase4[row] * sim.age.baseline[col]
-  }
-}
-sim.4.prediction <- data.frame(sim.data.4, sim.4.prediction)
+  mutate(agebase4 = 4, agemeasure = 4 + time) %>% #baseline age = 4 years old
+  dplyr::select(newpid, CD4PCT, time, treatment, agebase4)
+colnames(sim.data.4)[5] <- c("age.baseline")
+sim.data.4 <- posterior_predict(stan_lmer.fit.2, newdata = sim.data.4, draws = 1000)
 ```
 
 
 9. Posterior predictive checking: continuing the previous exercise, use the fitted model from (5) to simulate a new dataset of CD4 percentages (with the same sample size and ages of the original dataset) for the final time point of the study, and record the average CD4 percentage in this sample. Repeat this process 1000 times and compare the simulated distribution to the observed CD4 percentage at the final time point for the actual data.
 ```{r}
-# do the simulation for 1000 times is too time-consuming!!!
-
 # create the simulate data(for the final time point of the study)
+sim.number <- 100
+times <- 1000
 final.point.dect <- data.cd4 %>% group_by(newpid) %>% summarise(time = max(time))
-sim.data <- inner_join(data.cd4, final.point.dect, by = c("newpid", "time")) %>%
+data.final.point <- inner_join(data.cd4, final.point.dect, by = c("newpid", "time")) %>%
   dplyr::select(newpid, treatment, time, age.baseline, CD4PCT)
-# cd4.sim.intercept
-# sim.time
-# sim.treatment
-# sim.age.baseline
-# lmer.fit.2
-sim.num <- 100
-sim.time <- 200
-sim.time.matrix <- matrix(, nrow = dim(sim.data)[1], ncol = sim.time)
-for(i in 1: sim.time){
-  sim.prediciton.9 <- matrix(, nrow = dim(sim.data)[1], ncol = sim.num)
-  lmer.fit.2.sim <- sim(lmer.fit.2, sim.num)
-  fixed.intercept <- coef(lmer.fit.2.sim)$fixef[, 1]
-  random.effect <- 	ranef(lmer.fit.2)$newpid
-  sim.intercept <- matrix(, nrow = dim(random.effect)[1], ncol = length(fixed.intercept))
-  for(row in 1: dim(sim.intercept)[1]){
-    for(col in 1: dim(sim.intercept)[2]){
-      sim.intercept[row, col] <- random.effect[row, 1] + fixed.intercept[col]
-    }
-  }
-  sim.time         <- coef(lmer.fit.2.sim)$fixef[, 2]
-  sim.treatment    <- coef(lmer.fit.2.sim)$fixef[, 3]
-  sim.age.baseline <- coef(lmer.fit.2.sim)$fixef[, 4]
-  cd4.sim.intercept <- 
-  for(row in 1: dim(sim.prediciton.9)[1]){
-    for(col in 1: dim(sim.prediciton.9)[2]){
-      sim.prediciton.9[row, col] <- sim.intercept[row, col] + 
-        sim.data$time[row] * sim.time[col] + 
-        sim.data$treatment[row] * sim.treatment[col] + 
-        sim.data$age.baseline[row] * sim.age.baseline[col]
-    }
-  } # compute simulation result 
-  sim.time.matrix[, i] <- sim.prediciton.9 %>% apply(1, mean)
-  cat("iteration = ", i, "finished \n") # output iteration to make sure the calculation is going on 
+sim.matrix <- data.frame(newpid = unique(data.cd4$newpid))
+for(i in 1:times){
+  sim.final.point <- posterior_predict(stan_lmer.fit.2, newdata = data.final.point, 
+                                       draws = sim.number) %>% apply(2, mean)
+  sim.matrix[, (i+1)] <- sim.final.point
+  colnames(sim.matrix)[i+1] <- paste0("iter_", i)
 }
-sim.time.matrix <- sim.time.matrix %>% data.frame()
-colnames(sim.time.matrix) <- paste("iter", c(1:sim.num), sep = "")
-sim.matrix <- data.frame(newpid = sim.data$newpid, actual.CD4PCT = sim.data$CD4PCT, sim.time.matrix)
-# graphical display(distribution density plot)
-melt.sim <- sim.matrix[, -2] %>% 
-  melt(id.vars = "newpid", measure.vars = paste("iter", c(1:sim.num), sep = ""), 
-       variable.name = "iteration", value.name = "percentage")
-ggplot() + 
-  geom_density(data = melt.sim, aes(x = percentage, group = iteration), color = "azure3", lwd = 1) + 
-  geom_density(aes(x = sim.matrix$actual.CD4PCT), color = "red", lwd = 1) + theme_bw() + ggtitle("distribution comparsion of final time plot") 
+sim.matrix <- sim.matrix %>% melt(id.vars = "newpid", variable.name = "iteration", value.name = "CD4PCT")
 
+# create pp_check
+pp_check.final.point <- ggplot() + 
+  geom_density(data = sim.matrix, aes(x = CD4PCT, group = iteration), color = "azure3", lwd = .3) +
+  geom_density(data = data.final.point, mapping = aes(CD4PCT), color = "red", lwd = 1) + theme_bw()
+pp_check.final.point
+# not really good fitness for final points! 
 ```
 
 10. Extend the model to allow for varying slopes for the time predictor.
@@ -299,41 +234,73 @@ olympics1932$criterion<-str_trim(olympics1932_na$criterion)
 1. Construct a $7\times 7 \times 2$ array of the data (ordered by skater, judge, and judging criterion).
 
 ```{r}
-
+olympics1932_program <- olympics1932 %>% subset(criterion == "Program")
+olympics1932_performance <- olympics1932 %>% subset(criterion == "Performance")
+olympics <- list(olympics1932_program, olympics1932_performance)
+olympics[[2]]
 ```
 
 2. Reformulate the data as a $98\times 4$ array (similar to the top table in Figure 11.7), where the first two columns are the technical merit and artistic impression scores, the third column is a skater ID, and the fourth column is a judge ID.
 
 ```{r}
-
+olympics1932.data <- olympics1932 %>% 
+  melt(id = c("pair", "criterion"), variable.name = "judge_ID", value.name = "scores") %>%
+  dplyr::select(c("criterion", "scores", "pair", "judge_ID"))
 ```
 
 3. Add another column to this matrix representing an indicator variable that equals 1 if the skater and judge are from the same country, or 0 otherwise.
 
 ```{r}
-
+judge <- data.frame(judge_ID = unique(olympics1932.data$judge_ID), judge = c("Jeno Minich, Hungary", "Yngvar Bryn, Norway", "Hans Grunauer, Austria", "Walter Jakobsson, Finland", "George Torchon, France", "Herbert J. Clarke, Great Britain", "Charles M. Rotch, United States"))
+skater <- data.frame(pair = unique(olympics1932.data$pair), skater = c("Andree Brunet, Pierre Brunet, France", "Beatrix Loughran, Sherwin Badger, United States", "Emilia Rotter, Laszlo Szollas, Hungary", "Olva Oronista, Sandor Szalay, Hungary","Constance Wilson-Samuel, Montgomery Wilson, Canada", "Frances Claudet, Chauncey Bangs, Canada", "Gertrude Meredith, Joseph K. Savage, United States"))
+olympics1932.data <- inner_join(olympics1932.data, judge, by = "judge_ID")
+olympics1932.data <- inner_join(olympics1932.data, skater, by = "pair")
+olympics1932.data <- olympics1932.data %>% 
+  separate(judge, c("judge_name", "judge_country"), sep = ", ", fill = "right")
+skater_info <- str_split_fixed(string = olympics1932.data$skater, pattern = ", ", n = 3)
+olympics1932.data <- olympics1932.data %>% mutate(skater_1 = skater_info[, 1], 
+                                                  skater2 = skater_info[, 2], 
+                                                  skater_country = skater_info[, 3])
+olympics1932.data <- olympics1932.data %>% 
+  mutate(indicator = ifelse(olympics1932.data$judge_country == olympics1932.data$skater_country, 1, 0)) %>% dplyr::select(criterion, scores, pair, judge_ID, judge_country, skater_country, indicator)
 ```
 
 4. Write the notation for a non-nested multilevel model (varying across skaters and judges) for the technical merit ratings and fit using lmer().
 ```{r}
-
+data_4 <- olympics1932.data %>% subset(criterion == "Performance")
+fit_program <- lmer(scores ~ 1 + (1|pair) + (1|judge_ID), data = data_4)
+fixef(fit_program)
+ranef(fit_program)$pair
+ranef(fit_program)$judge_ID
 ```
 
 5. Fit the model in (4) using the artistic impression ratings.
 ```{r}
-
+data_5 <- olympics1932.data %>% subset(criterion == "Program")
+fit_performance<- lmer(scores ~ 1 + (1|pair) + (1|judge_ID), data = data_5)
+fixef(fit_performance)
+ranef(fit_performance)$pair
+ranef(fit_performance)$judge_ID
 ```
 
 6. Display your results for both outcomes graphically.
 
 ```{r}
-
+data_4 <- data_4 %>% mutate(prediction = predict(fit_program, newdata = data_4))
+data_5 <- data_5 %>% mutate(prediction = predict(fit_performance, newdata = data_5))
+plot_data.6 <- rbind(data_4, data_5) %>% mutate(judge = as.numeric(plot_data.6$judge_ID))
+ggplot(plot_data.6, aes(x = judge, y = prediction, group = interaction(pair, criterion), color = factor(pair))) + geom_smooth(aes(linetype = criterion), se = FALSE, formula = 'y ~ x', method = 'loess', lwd = .5)
 ```
 
 7. (optional) Use posterior predictive checks to investigate model fit in (4) and (5).
 
 ```{r}
-
+stan_program     <- stan_lmer(scores ~ 1 + (1|pair) + (1|judge_ID), data = data_4)
+stan_performance <- stan_lmer(scores ~ 1 + (1|pair) + (1|judge_ID), data = data_5)
+sim_program     <- posterior_predict(stan_program, newdata = data_4, draws = 1000)
+sim_performance <- posterior_predict(stan_performance, newdata = data_5, draws = 1000)
+pp_check(stan_program)
+pp_check(stan_performance)
 ```
 
 ## Different ways to write the model:
@@ -361,42 +328,61 @@ http://www.stat.columbia.edu/~gelman/arm/examples/speed.dating/Speed%20Dating%20
 for details.
 
 ```{r}
-#dating<-fread("http://www.stat.columbia.edu/~gelman/arm/examples/speed.dating/Speed%20Dating%20Data.csv")
-dating<-fread("Speed Dating Data.csv")
-
+# dating<-fread("http://www.stat.columbia.edu/~gelman/arm/examples/speed.dating/Speed%20Dating%20Data.csv")
+# dating<-fread("Speed Dating Data.csv")
+dating <- read.csv("http://www.stat.columbia.edu/~gelman/arm/examples/speed.dating/Speed%20Dating%20Data.csv", header = TRUE)
 ```
 
 1. Fit a classical logistic regression predicting $Pr(y_{ij} = 1)$ given person $i$'s 6 ratings of person $j$. Discuss the importance of attractiveness, compatibility, and so forth in this predictive model.
 
 ```{r}
-dating_complete_pool <- glm(match~attr_o +sinc_o +intel_o +fun_o +amb_o +shar_o,data=dating,family=binomial)
+dating <- dating %>% dplyr::select(c(iid, pid, match, attr_o, sinc_o, intel_o, fun_o, amb_o, shar_o))
+dating %>% count(iid)
+dating %>% count(pid)
+# match		1=yes, 0=no
+# attr_o: 		rating by partner the night of the event, for all 6 attributes
+dating_complete_pool <- glm(match ~ attr_o + sinc_o + intel_o + fun_o + amb_o + shar_o, data=dating,                                 family = binomial)
+summary(dating_complete_pool)
 ```
 
 2. Expand this model to allow varying intercepts for the persons making the evaluation; that is, some people are more likely than others to want to meet someone again. Discuss the fitted model.
 
 ```{r}
-dating_pooled_1 <- glmer(match~gender + attr_o +sinc_o +intel_o +fun_o +amb_o +shar_o+(1|iid),data=dating,family=binomial)
+dating_pooled_1 <- glmer(match~gender + attr_o +sinc_o +intel_o +fun_o +amb_o +shar_o+(1|iid),                                    data=dating, family=binomial)
+# match		1=yes, 0=no
+# gender: female = 0, male = 1
 
+# # fixed effect and random effect
+# fixef(dating_pooled_1)
+# ranef(dating_pooled_1)
+plotREsim(REsim(dating_pooled_1))
 ```
+discussion: factor gender(male), 
 
 3. Expand further to allow varying intercepts for the persons being rated. Discuss the fitted model.
 
 ```{r}
-dating_pooled_2 <- glmer(match~gender + attr_o +sinc_o +intel_o +fun_o +amb_o +shar_o+(1|iid)+(1|pid),data=dating,family=binomial)
-
+dating_pooled_2 <- glmer(match ~ gender + attr_o + sinc_o + intel_o + fun_o + amb_o + shar_o + (1|iid) +                          (1|pid), data=dating,family=binomial)
+fixef(dating_pooled_2)
+ranef(dating_pooled_2)$iid
+ranef(dating_pooled_2)$pid
+plotREsim(REsim(dating_pooled_2))
 ```
 
 4. You will now fit some models that allow the coefficients for attractiveness, compatibility, and the other attributes to vary by person. Fit a no-pooling model: for each person i, fit a logistic regression to the data $y_{ij}$ for the 10 persons j whom he or she rated, using as predictors the 6 ratings $r_{ij1},\dots,r_{ij6}$ . (Hint: with 10 data points and 6 predictors, this model is difficult to fit. You will need to simplify it in some way to get reasonable fits.)
 ```{r}
-uiid<-unique(dating$iid)
-dating_no_pool_list<-vector("list",length(uiid))
-for(i in 1:length(uiid)){
-#  attr_o +sinc_o +intel_o +fun_o +amb_o+shar_o,
-dating_no_pool_list[[i]] <- summary(glm(match~attr_o+shar_o,
-                       data=dating,
-                       subset = dating$iid==uiid[i],
-                       family=binomial))$coefficients
-}
+uiid <- unique(dating$iid)
+dating_no_pool_list <- vector("list",length(uiid))
+# for(i in 1:length(uiid)){
+# #  attr_o +sinc_o +intel_o +fun_o +amb_o+shar_o,
+# dating_no_pool_list[[i]] <- summary(glm(match~attr_o+shar_o,
+#                        data=dating,
+#                        subset = subset(dating, iid==uiid[i]),
+#                        family=binomial))$coefficients
+# }
+dating_partial_pooled_1 <- glmer(match ~ attr_o  + shar_o + (1 + attr_o  + shar_o|iid), data = dating, family = binomial)
+fixef(dating_partial_pooled_1)
+ranef(dating_partial_pooled_1)$iid
 ```
 
 5. Fit a multilevel model, allowing the intercept and the coefficients for the 6 ratings to vary by the rater i.
