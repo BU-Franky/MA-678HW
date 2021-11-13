@@ -108,6 +108,7 @@ summary(fit.slope)
 4. Write a model predicting CD4 percentage as a function of time with varying intercepts across children. Fit using `lmer()` and interpret the coefficient for time.
 ```{r}
 lmer.fit.1 <- lmer(CD4PCT ~ time + (1|newpid), data = data.cd4)
+stan_lmer.fit.1 <- stan_lmer(CD4PCT ~ time + (1|newpid), data = data.cd4)
 summary(lmer.fit.1)
 # ranef(lmer.fit.1)
 ```
@@ -199,6 +200,7 @@ pp_check.final.point
 10. Extend the model to allow for varying slopes for the time predictor.
 ```{r}
 lmer.fit.3 <- lmer(CD4PCT ~ time + treatment + age.baseline + (1 + time|newpid), data = data.cd4)
+stan_lmer.fit.3 <- stan_lmer(CD4PCT ~ time + treatment + age.baseline + (1 + time|newpid), data = data.cd4)
 summary(lmer.fit.3)
 ```
 
@@ -206,14 +208,28 @@ summary(lmer.fit.3)
 11. Next fit a model that does not allow for varying slopes but does allow for different coefficients for each time point (rather than fitting the linear trend).
 ```{r}
 lmer.fit.4 <- lmer(CD4PCT ~ time + treatment + age.baseline + (1|time), data = data.cd4)
+stan_lmer.fit.4 <- stan_lmer(CD4PCT ~ time + treatment + age.baseline + (1|time), data = data.cd4)
 summary(lmer.fit.4)
 ```
 
 
 12. Compare the results of these models both numerically and graphically.
 ```{r}
+# up till now, we get four linear mixed effect models
+lmer.fit.1
+lmer.fit.2
+lmer.fit.3
+lmer.fit.4
+# numerically 
+anova(lmer.fit.1, lmer.fit.2, lmer.fit.3, lmer.fit.4)
+AIC(lmer.fit.1, lmer.fit.2, lmer.fit.3, lmer.fit.4)
+# from the point of view of anova and AIC test, lmer.fit.3 looks better
 
-
+# graphically 
+pp_check(stan_lmer.fit.1)
+pp_check(stan_lmer.fit.2)
+pp_check(stan_lmer.fit.3)
+pp_check(stan_lmer.fit.4)
 ```
 
 
@@ -234,7 +250,7 @@ olympics1932$criterion<-str_trim(olympics1932_na$criterion)
 1. Construct a $7\times 7 \times 2$ array of the data (ordered by skater, judge, and judging criterion).
 
 ```{r}
-olympics1932_program <- olympics1932 %>% subset(criterion == "Program")
+olympics1932_program     <- olympics1932 %>% subset(criterion == "Program")
 olympics1932_performance <- olympics1932 %>% subset(criterion == "Performance")
 olympics <- list(olympics1932_program, olympics1932_performance)
 olympics[[2]]
@@ -307,6 +323,14 @@ pp_check(stan_performance)
 
 Using any data that are appropriate for a multilevel model, write the model in the five ways discussed in Section 12.5 of Gelman and Hill.
 
+model: lmer.fit.2 <- lmer(CD4PCT ~ time + treatment + age.baseline + (1|newpid), data = data.cd4)
+fixed effect: $$CD4 percentages = \beta_0 + \beta_1 \times time + \beta_2 times treatment + \beta_3 \times age.baseline$$
+1. $$ $$
+2. 
+3. 
+4. 
+5. 
+
 ## Models for adjusting individual ratings: 
 
 A committee of 10 persons is evaluating 100 job applications. Each person on the committee reads 30 applications (structured so that each application is read by three people) and gives each a numerical rating between 1 and 10.
@@ -314,8 +338,16 @@ A committee of 10 persons is evaluating 100 job applications. Each person on the
 
 1. It would be natural to rate the applications based on their combined scores; however, there is a worry that different raters use different standards, and we would like to correct for this. Set up a model for the ratings (with parameters for the applicants and the raters).
 
+$S_{i1[j]}$: first score of application i, which is graded by rater j; similarly, for this application, we have $S_{i2[j]}$ and              $S_{i3[j]}$
+$C_i$: combined score for application i; 
+
+the model I defined is: $$ C_i = S_{i1[j]} + S_{i2[j]} + S_{i3[j]} + (1|G_1) + (1|G_2) + (1|G_3)$$ and $G_1$, $G_2$ and $G_3$ are the group of application i 's first, second and third rate. then, the next step is to estimated random effects of different rater. 
+for rater j, he/she rates $S_{k_1[j]}, \dots, S_{k_{30}[j]}$; for each rater, the applications he/she rate randomly come from 100 applications and should follow same distribution. Thus, it sounds reasonable to define random effects of rater by standardized the distribution of applications rated by this rater. let $mean_j$ and $sd_j$ be the mean and standard deviation of $S_{k_1[j]}, \dots, S_{k_{30}[j]}$. set 5 as a standard center, random effect of $G_{1[j]} = G_{2[j]} = G_{3[j]} = 5 - mean_j$
+
 
 2. It is possible that some persons on the committee show more variation than others in their ratings. Expand your model to allow for this.
+
+make an adjustment to random effect and take variance into consideration. $$ C_i = S_{i1[j]} + S_{i2[j]} + S_{i3[j]} + (1 +S_{i1[j]} |G_1) + (1 + S_{i2[j]}|G_2) + (1 + S_{i3[j]}|G_3)$$. set 5 as a standard center and 1 as the standardized sd, random effect of $G_{1[j]} = G_{2[j]} = G_{3[j]}$ on intercept is $(5 - mean_j)/sd_j$ and random effect of $G_{1[j]} = G_{2[j]} = G_{3[j]}$ on slope is $ \frac{1}{sd_j}$.
 
 
 
